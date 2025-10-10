@@ -3,3 +3,10 @@
 Данная версия направлена на исправление багов и обновление систем
 
 **AK Arseniy Kubinskiy.**
+
+---
+git init 
+git add . 
+git commit -m "..." 
+git push 
+
