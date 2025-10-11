@@ -2,10 +2,18 @@ import asyncio
 import os
 import importlib
 import pkgutil
+import logging
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 
+from commands.greetings import scheduler, setup_scheduler
+
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
@@ -24,7 +32,12 @@ register_all("commands")
 
 
 async def main():
-    await dp.start_polling(bot)
+    setup_scheduler(bot)
+    scheduler.start()
+    try:
+        await dp.start_polling(bot)
+    finally:
+        scheduler.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
