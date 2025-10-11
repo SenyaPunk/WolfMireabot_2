@@ -1,15 +1,36 @@
-Всем привет! Это обновленная версия бота WolfMirea 
-Проект OpenSource. Вы можете предлагать свои идеи, исправлять баги и участвовать в проекте 
-Данная версия направлена на исправление багов и обновление систем
+<h1 align="center">🐺 Wolf MIREA Bot</h1>
 
-**AK Arseniy Kubinskiy.**
+<p align="center">
+  <a href="https://senyakubinskiy.ru/" target="_blank">by <b>Senya Kubinskiy</b></a>
+</p>
+
+<p align="center">
+  <img src="https://readme-typing-svg.herokuapp.com?color=36BCF7&center=true&vCenter=true&lines=Wolf+MIREA+bot;OpenSource+project;Made+with+💙+by+AK+Arseniy+Kubinskiy" alt="Typing SVG">
+</p>
 
 ---
-git init 
 
-git add . 
+## 🧠 О проекте
 
-git commit -m "..." 
+**Wolf MIREA Bot** — это обновлённая версия интеллектуального бота, созданного для студентов и участников сообщества **MIREA**.  
+Проект является **Open Source**, поэтому вы можете:
 
-git push 
+- 💡 Предлагать идеи и улучшения  
+- 🧩 Исправлять баги  
+- 🤝 Участвовать в развитии проекта  
 
+Новая версия направлена на:
+- 🔧 Оптимизацию и исправление ошибок  
+- ⚙️ Улучшение стабильности  
+- 🚀 Добавление новых возможностей  
+
+---
+
+## 🧰 Команды Git для быстрого старта
+
+```bash
+git init
+git add .
+git commit -m "your commit message"
+git push
+```
