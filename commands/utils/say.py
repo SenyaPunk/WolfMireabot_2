@@ -1,8 +1,10 @@
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler 
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
 
-async def say(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
-    text = " ".join(context.args) if context.args else "Напиши что-нибудь"
-    await update.message.reply_text(text)
+router = Router()
 
-HANDLERS = [CommandHandler("say", say)]
+@router.message(Command("say"))
+async def say(message: Message):
+    text = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Напиши что-нибудь"
+    await message.reply(text)

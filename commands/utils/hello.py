@@ -1,7 +1,9 @@
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler 
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
 
-async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
-    await update.message.reply_text(f'Hello, {update.effective_user.first_name}!')
+router = Router()
 
-HANDLERS = [CommandHandler("hello", hello)]
+@router.message(Command("hello"))
+async def hello(message: Message):
+    await message.reply(f'Hello, {message.from_user.first_name}!')
