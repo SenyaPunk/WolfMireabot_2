@@ -1,15 +1,23 @@
 # Main файл. Импорт либ
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
 from dotenv import load_dotenv
+
 import os
-import importlib
 import pkgutil
+import logging
+import importlib
 
 load_dotenv() 
 
 app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build() 
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Регестрируем все команды
 def register_all(package_name="commands"): 
