@@ -1,2 +1,9 @@
+# Python byte-compiled binaries
+__pycache__
+
+# Environments
 .env
+env
+venv
+
 main.zip
