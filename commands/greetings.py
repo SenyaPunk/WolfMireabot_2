@@ -12,11 +12,13 @@ from apscheduler.triggers.cron import CronTrigger
 
 from utils.fusion_brain import FusionBrainAPI
 from utils.text_generator import TextGenerator
+from utils.admin_manager import AdminManager
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 text_gen = TextGenerator()
+admin_manager = AdminManager()
 
 fusion_api_key = os.getenv('FUSION_API_KEY')
 fusion_secret_key = os.getenv('FUSION_SECRET_KEY')
@@ -107,6 +109,14 @@ async def send_greeting_message(bot, kind: Literal["morning", "evening"]):
 
 @router.message(Command("preview"))
 async def preview_greeting(message: Message):
+    if not admin_manager.is_admin(message.from_user.id):
+        await message.reply("❌ Только администраторы могут использовать эту команду.")
+        return
+    
+    if message.chat.type == "private":
+        await message.reply("❌ Эта команда доступна только в групповых чатах.")
+        return
+    
     args = message.text.split()
     kind = "morning"
     
@@ -156,6 +166,14 @@ async def preview_greeting(message: Message):
 
 @router.message(Command("schedule"))
 async def show_schedule(message: Message):
+    if not admin_manager.is_admin(message.from_user.id):
+        await message.reply("❌ Только администраторы могут использовать эту команду.")
+        return
+    
+    if message.chat.type == "private":
+        await message.reply("❌ Эта команда доступна только в групповых чатах.")
+        return
+    
     morning_time = os.getenv('MORNING_TIME', '08:00')
     evening_time = os.getenv('EVENING_TIME', '22:00')
     
@@ -171,6 +189,14 @@ async def show_schedule(message: Message):
 
 @router.message(Command("config"))
 async def check_config(message: Message):
+    if not admin_manager.is_admin(message.from_user.id):
+        await message.reply("❌ Только администраторы могут использовать эту команду.")
+        return
+    
+    if message.chat.type == "private":
+        await message.reply("❌ Эта команда доступна только в групповых чатах.")
+        return
+    
     status = []
     
     # Проверка токена бота
