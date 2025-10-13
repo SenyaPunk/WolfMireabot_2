@@ -77,13 +77,10 @@ class TextGenerator:
         try:
             logger.info("Начинаем генерацию текста для %s", kind)
 
-            # импортируем g4f внутри метода, чтобы импорт модуля не падал раньше времени
             import g4f
 
-            # выбираем модель: при отсутствии — используем дефолт из g4f, если доступен
             model_to_use = self.model or getattr(g4f.models, "default", None) or "gpt-4o-mini"
 
-            # Формируем messages в стиле Chat API
             messages = [
                 {
                     "role": "system",
@@ -95,7 +92,6 @@ class TextGenerator:
                 },
             ]
 
-            # Вызов (stream=False — ожидаем итоговый ответ)
             response = g4f.ChatCompletion.create(
                 model=model_to_use,
                 messages=messages,
@@ -108,7 +104,6 @@ class TextGenerator:
                 logger.warning("g4f вернул пустой ответ, используем запасной текст.")
                 raise ValueError("Пустой ответ от g4f")
 
-            # Обрезаем лишние пробелы и новые строки, гарантируем короткую форму
             generated_text = " ".join(generated_text.split())
             logger.info("Текст успешно сгенерирован (%d символов): %s",
                         len(generated_text), generated_text[:120])
