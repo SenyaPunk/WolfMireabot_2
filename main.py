@@ -36,12 +36,20 @@ async def handle_private_messages(message: Message):
 
 # Регистрируем все команды (file manager)
 def register_all(package_name="commands"):
+    registered_packages = set()
+    
     pkg = importlib.import_module(package_name)
     for finder, name, ispkg in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+        parent_pkg = '.'.join(name.split('.')[:-1])
+        if parent_pkg in registered_packages:
+            continue
+            
         mod = importlib.import_module(name)
         if hasattr(mod, "router"):
             router = getattr(mod, "router")
             dp.include_router(router)
+            if ispkg:
+                registered_packages.add(name)
 
 register_all("commands")
 
