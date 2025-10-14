@@ -6,6 +6,7 @@ from aiogram.types import Message
 
 from utils.admin_manager import AdminManager
 from utils.user_storage import UserStorage
+from utils.user_link import get_user_link
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -134,17 +135,18 @@ async def list_admin_command(message: Message):
     
     admin_list = []
     for admin_id in admins:
-        display_name = user_storage.get_display_name(admin_id)
-        admin_list.append(f"• {display_name} (ID: {admin_id})")
+        user_link = get_user_link(admin_id)
+        admin_list.append(f"• {user_link} (ID: {admin_id})")
     
     admin_list_text = "\n".join(admin_list)
     
-    owner_display = user_storage.get_display_name(admin_manager.owner_id) if admin_manager.owner_id else f"ID {admin_manager.owner_id}"
-    owner_text = f"👑 Владелец: {owner_display} (ID: {admin_manager.owner_id})\n\n" if admin_manager.owner_id else ""
+    owner_link = get_user_link(admin_manager.owner_id) if admin_manager.owner_id else f"ID {admin_manager.owner_id}"
+    owner_text = f"👑 Владелец: {owner_link} (ID: {admin_manager.owner_id})\n\n" if admin_manager.owner_id else ""
     
     await message.reply(
         f"📋 <b>Список администраторов:</b>\n\n"
         f"{owner_text}"
         f"{admin_list_text}",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        disable_web_page_preview=True,
     )
