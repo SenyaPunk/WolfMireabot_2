@@ -39,9 +39,11 @@ class AdminManager:
         return user_id == self.owner_id
     
     def is_admin(self, user_id: int) -> bool:
+        self.load_admins()
         return user_id in self.admins or self.is_owner(user_id)
     
     def add_admin(self, user_id: int) -> bool:
+        self.load_admins()
         if user_id not in self.admins:
             self.admins.add(user_id)
             self.save_admins()
@@ -50,6 +52,7 @@ class AdminManager:
         return False
     
     def remove_admin(self, user_id: int) -> bool:
+        self.load_admins()
         if user_id in self.admins:
             self.admins.remove(user_id)
             self.save_admins()
@@ -58,4 +61,5 @@ class AdminManager:
         return False
     
     def get_admins(self) -> list:
+        self.load_admins()
         return list(self.admins)
