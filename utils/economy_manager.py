@@ -1,73 +1,75 @@
 """Модуль для управления экономикой бота."""
 import json
-import os
 import logging
-from typing import Dict, Optional, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
 class EconomyManager:
     def __init__(self, economy_file: str = "economy.json"):
-        self.economy_file = economy_file
+        data_dir = Path.cwd() / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        econ_path = Path(economy_file)
+        if not econ_path.is_absolute():
+            econ_path = data_dir / econ_path
+
+        self.economy_file: Path = econ_path
         self.balances: Dict[int, float] = {}
         self.load_balances()
-    
+
     def load_balances(self):
         try:
-            if os.path.exists(self.economy_file):
-                with open(self.economy_file, 'r', encoding='utf-8') as f:
+            if self.economy_file.exists():
+                with self.economy_file.open('r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # Конвертируем ключи обратно в int
                     self.balances = {int(k): float(v) for k, v in data.get('balances', {}).items()}
-                    logger.info(f"Загружено {len(self.balances)} балансов")
+                    logger.info(f"Загружено {len(self.balances)} балансов из {self.economy_file}")
             else:
-                logger.info("Файл экономики не найден, создаем новый")
+                logger.info(f"Файл экономики {self.economy_file} не найден, создаем новый")
                 self.save_balances()
         except Exception as e:
             logger.error(f"Ошибка загрузки балансов: {e}")
             self.balances = {}
-    
+
     def save_balances(self):
         try:
-            with open(self.economy_file, 'w', encoding='utf-8') as f:
-                json.dump({'balances': self.balances}, f, ensure_ascii=False, indent=2)
-            logger.info(f"Сохранено {len(self.balances)} балансов")
+            serializable = {str(k): v for k, v in self.balances.items()}
+            with self.economy_file.open('w', encoding='utf-8') as f:
+                json.dump({'balances': serializable}, f, ensure_ascii=False, indent=2)
+            logger.info(f"Сохранено {len(self.balances)} балансов в {self.economy_file}")
         except Exception as e:
             logger.error(f"Ошибка сохранения балансов: {e}")
-    
+
     def get_balance(self, user_id: int) -> float:
-        """Получить баланс пользователя."""
         self.load_balances()
-        return self.balances.get(user_id, 0.0)
-    
+        return float(self.balances.get(user_id, 0.0))
+
     def set_balance(self, user_id: int, amount: float):
-        """Установить баланс пользователя."""
         self.load_balances()
-        self.balances[user_id] = round(amount, 2)
+        self.balances[user_id] = round(float(amount), 2)
         self.save_balances()
-    
+
     def add_money(self, user_id: int, amount: float) -> float:
-        """Добавить деньги пользователю."""
         self.load_balances()
-        current = self.balances.get(user_id, 0.0)
-        new_balance = current + amount
-        self.balances[user_id] = round(new_balance, 2)
+        current = float(self.balances.get(user_id, 0.0))
+        new_balance = round(current + float(amount), 2)
+        self.balances[user_id] = new_balance
         self.save_balances()
         logger.info(f"Добавлено {amount} пользователю {user_id}. Новый баланс: {new_balance}")
         return new_balance
-    
+
     def remove_money(self, user_id: int, amount: float) -> float:
-        """Убрать деньги у пользователя."""
         self.load_balances()
-        current = self.balances.get(user_id, 0.0)
-        new_balance = current - amount
-        self.balances[user_id] = round(new_balance, 2)
+        current = float(self.balances.get(user_id, 0.0))
+        new_balance = round(current - float(amount), 2)
+        self.balances[user_id] = new_balance
         self.save_balances()
         logger.info(f"Убрано {amount} у пользователя {user_id}. Новый баланс: {new_balance}")
         return new_balance
-    
+
     def get_top_users(self, limit: int = 10) -> List[Tuple[int, float]]:
-        """Получить топ пользователей по балансу."""
         self.load_balances()
         sorted_balances = sorted(self.balances.items(), key=lambda x: x[1], reverse=True)
         return sorted_balances[:limit]
