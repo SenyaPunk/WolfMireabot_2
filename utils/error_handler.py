@@ -13,7 +13,6 @@ async def send_error_message(
     delete_delay: int = 5,
     delete_user_message: bool = True
 ) -> None:
-    # Удаляем сообщение пользователя
     if delete_user_message:
         try:
             await message.delete()
@@ -22,11 +21,9 @@ async def send_error_message(
         except Exception as e:
             logger.error(f"Ошибка при удалении сообщения пользователя: {e}")
     
-    # Отправляем сообщение об ошибке
     try:
         error_msg = await message.answer(error_text, parse_mode="HTML")
         
-        # Ждем указанное время и удаляем сообщение об ошибке
         await asyncio.sleep(delete_delay)
         await error_msg.delete()
     except TelegramBadRequest as e:

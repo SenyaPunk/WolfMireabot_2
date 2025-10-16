@@ -7,6 +7,7 @@ from aiogram.types import Message
 from utils.economy_manager import EconomyManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
+from utils.error_handler import send_error_message
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -15,11 +16,12 @@ economy_manager = EconomyManager()
 user_storage = UserStorage()
 
 
+
 # балансик
 @router.message(Command("balance"))
 async def balance_command(message: Message):
     if message.chat.type == "private":
-        await message.reply("❌ Эта команда доступна только в групповых чатах.")
+        await send_error_message(message, "❌ Эта команда доступна только в групповых чатах.")
         return
     
     target_user_id = None
@@ -37,7 +39,7 @@ async def balance_command(message: Message):
             if target_user_id:
                 target_name = user_storage.get_display_name(target_user_id)
             else:
-                await message.reply(
+                await send_error_message(message, 
                     f"❌ Пользователь @{username} не найден в базе данных.\n"
                     "Убедитесь, что пользователь писал сообщения в этом чате."
                 )

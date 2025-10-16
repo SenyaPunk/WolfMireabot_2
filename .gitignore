@@ -7,3 +7,5 @@ tasks.txt
 users.json 
 economy.json 
 data/
+commands/donate/
+*/__pycache__/

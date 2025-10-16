@@ -26,14 +26,6 @@ user_storage = UserStorage()
 
 dp.update.outer_middleware(UserTrackingMiddleware(user_storage))
 
-# Игнор в лс команды
-@dp.message(F.chat.type == "private")
-async def handle_private_messages(message: Message):
-    if message.text and message.text.startswith('/'):
-        command = message.text.split()[0].split('@')[0]
-        if command != '/hello':
-            return
-
 # Регистрируем все команды (file manager)
 def register_all(package_name="commands"):
     registered_packages = set()
