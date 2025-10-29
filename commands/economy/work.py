@@ -23,26 +23,58 @@ user_storage = UserStorage()
 WORK_COOLDOWN = 14400  
 WORK_TIME_LIMIT = 30   
 REQUIRED_CLICKS = 5   
-PAYMENT_DELAY = 1800   # 30 минут задержка перед выплатой
+PAYMENT_DELAY = 300  
+
+REACTION_TIMEOUT = 30  
+REACTION_MIN_WAIT = 3  
+REACTION_MAX_WAIT = 10  
 
 
 def get_work_cooldown_key(user_id: int, chat_id: int) -> str:
-    return f"work_{user_id}_{chat_id}"
+    return f"work_cooldown:{user_id}:{chat_id}"
 
 
 def get_work_session_key(user_id: int, chat_id: int) -> str:
-    return f"work_session_{user_id}_{chat_id}"
+    return f"work_session:{user_id}:{chat_id}"
 
 
 def format_time_remaining(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
     
     if hours > 0:
-        return f"{hours} ч. {minutes} мин."
+        return f"{hours}ч {minutes}м {secs}с"
+    elif minutes > 0:
+        return f"{minutes}м {secs}с"
     else:
-        return f"{minutes} мин."
+        return f"{secs}с"
 
+
+def create_work_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    button = InlineKeyboardButton(
+        text="🔨 Работать",
+        callback_data=f"work_click:{user_id}"
+    )
+    return InlineKeyboardMarkup(inline_keyboard=[[button]])
+
+
+def get_random_work_type() -> str:
+    return random.choice(['clicks', 'reaction'])
+
+def calculate_reaction_reward(reaction_time: float) -> int:
+    if reaction_time <= 0.5:
+        return random.randint(80, 100)
+    elif reaction_time <= 0.8:
+        return random.randint(60, 80)
+    elif reaction_time <= 1.2:
+        return random.randint(40, 60)
+    elif reaction_time <= 2.0:
+        return random.randint(25, 45)
+    elif reaction_time <= 3.0:
+        return random.randint(15, 30)
+    else:
+        return random.randint(5, 15)
 
 def calculate_reward(completion_time: float) -> int:
     if completion_time <= 4:
@@ -57,14 +89,6 @@ def calculate_reward(completion_time: float) -> int:
         return random.randint(5, 20)
     else:
         return random.randint(1, 10)
-
-
-def create_work_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    button = InlineKeyboardButton(
-        text="🔨 Работать",
-        callback_data=f"work_click:{user_id}"
-    )
-    return InlineKeyboardMarkup(inline_keyboard=[[button]])
 
 
 async def schedule_payment(bot: Bot, user_id: int, chat_id: int, reward: int, user_name: str):
@@ -82,13 +106,11 @@ async def schedule_payment(bot: Bot, user_id: int, chat_id: int, reward: int, us
             f"✅ <i>Деньги зачислены на ваш счет!</i>",
             parse_mode="HTML", 
             disable_web_page_preview=True,
-
         )
         
         logger.info(f"Payment of {reward} coins delivered to user {user_id} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to deliver payment to user {user_id}: {e}")
-
 
 @router.message(Command("work"))
 async def work_command(message: Message, bot: Bot):
@@ -117,7 +139,6 @@ async def work_command(message: Message, bot: Bot):
             f"💡 <i>Нужно отдохнуть между сменами...</i>",
             parse_mode="HTML",
             disable_web_page_preview=True,
-
         )
         
         await asyncio.sleep(3)
@@ -130,12 +151,15 @@ async def work_command(message: Message, bot: Bot):
     
     cooldown_manager.set_cooldown(cooldown_key)
     
+    work_type = get_random_work_type()
+    
     session_key = get_work_session_key(user.id, chat_id)
     cooldown_manager.set_data(session_key, {
         "start_time": time.time(),
         "clicks": 0,
         "active": True,
-        "started": False  
+        "started": False,
+        "work_type": work_type
     })
     
     start_button = InlineKeyboardButton(
@@ -146,29 +170,46 @@ async def work_command(message: Message, bot: Bot):
     
     user_name = user.first_name or "Пользователь"
     
-    work_msg = await message.reply(
-        f"🏭 <b>Рабочая смена доступна!</b>\n\n"
-        f"👤 <b>Работник:</b> {user_name}\n"
-        f"🎯 <b>Задача:</b> Нажать кнопку ровно {REQUIRED_CLICKS} раз\n"
-        f"⏰ <b>Время:</b> {WORK_TIME_LIMIT} секунд\n"
-        f"💰 <b>Награда:</b> зависит от скорости выполнения\n"
-        f"⚡ <b>Быстрее = больше монет!</b>\n"
-        f"💵 <b>Выплата:</b> через 30 минут после завершения\n\n"
-        f"👇 <b>Нажмите кнопку, чтобы начать!</b>",
-        reply_markup=start_keyboard,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-
-    )
+    if work_type == 'clicks':
+        work_msg = await message.reply(
+            f"🏭 <b>Рабочая смена доступна!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"🎯 <b>Задача:</b> Нажать кнопку ровно {REQUIRED_CLICKS} раз\n"
+            f"⏰ <b>Время:</b> {WORK_TIME_LIMIT} секунд\n"
+            f"💰 <b>Награда:</b> зависит от скорости выполнения\n"
+            f"⚡ <b>Быстрее = больше монет!</b>\n"
+            f"💵 <b>Выплата:</b> через 5 минут после завершения\n\n"
+            f"👇 <b>Нажмите кнопку, чтобы начать!</b>",
+            reply_markup=start_keyboard,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    else:  # reaction
+        work_msg = await message.reply(
+            f"🎯 <b>Тест на реакцию!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"🎯 <b>Задача:</b> Нажать кнопку, когда загорится зеленый свет\n"
+            f"🔴 <b>Правила:</b>\n"
+            f"  • Сначала будет гореть красный свет\n"
+            f"  • Дождитесь зеленого света\n"
+            f"  • Нажмите кнопку как можно быстрее!\n"
+            f"⚠️ <b>Внимание:</b> Если нажмете на красный - проиграете!\n"
+            f"💰 <b>Награда:</b> зависит от скорости реакции\n"
+            f"⚡ <b>Быстрее = больше монет!</b>\n"
+            f"💵 <b>Выплата:</b> через 5 минут после завершения\n\n"
+            f"👇 <b>Нажмите кнопку, чтобы начать!</b>",
+            reply_markup=start_keyboard,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
     
     session = cooldown_manager.get_data(session_key)
     session["message_id"] = work_msg.message_id
     cooldown_manager.set_data(session_key, session)
     
     logger.info(
-        f"Work command used by {user.first_name} ({user.id}) in chat {chat_id}"
+        f"Work command ({work_type}) used by {user.first_name} ({user.id}) in chat {chat_id}"
     )
-
 
 @router.callback_query(F.data.startswith("work_start:"))
 async def work_start_callback(callback: CallbackQuery, bot: Bot):
@@ -207,21 +248,100 @@ async def work_start_callback(callback: CallbackQuery, bot: Bot):
     session["start_time"] = time.time()
     cooldown_manager.set_data(session_key, session)
     
-    keyboard = create_work_keyboard(user_id)
+    work_type = session.get("work_type", "clicks")
     
-    await callback.message.edit_text(
-        f"🔥 <b>Работа началась!</b>\n\n"
-        f"👤 <b>Работник:</b> {user_name}\n"
-        f"📊 <b>Прогресс:</b> 0/{REQUIRED_CLICKS}\n"
-        f"⏰ <b>Время:</b> {WORK_TIME_LIMIT} секунд\n"
-        f"⏱️ <b>Отсчет времени начался!</b>\n\n"
-        f"🎯 <b>Нажимайте кнопку!</b>",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    if work_type == 'clicks':
+        keyboard = create_work_keyboard(user_id)
+        
+        await callback.message.edit_text(
+            f"🔥 <b>Работа началась!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"📊 <b>Прогресс:</b> 0/{REQUIRED_CLICKS}\n"
+            f"⏰ <b>Время:</b> {WORK_TIME_LIMIT} секунд\n"
+            f"⏱️ <b>Отсчет времени начался!</b>\n\n"
+            f"🎯 <b>Нажимайте кнопку!</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        
+        asyncio.create_task(check_work_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
     
-    asyncio.create_task(check_work_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
+    else:  # reaction
+        red_button = InlineKeyboardButton(
+            text="🔴🔴🔴 ЖДИТЕ 🔴🔴🔴",
+            callback_data=f"reaction_red:{user_id}"
+        )
+        red_keyboard = InlineKeyboardMarkup(inline_keyboard=[[red_button]])
+        
+        await callback.message.edit_text(
+            f"🔴 <b>КРАСНЫЙ СВЕТ!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"⏰ <b>Ждите зеленый свет...</b>\n\n"
+            f"⚠️ <b>НЕ НАЖИМАЙТЕ СЕЙЧАС!</b>",
+            reply_markup=red_keyboard,
+            parse_mode="HTML"
+        )
+        
+        wait_time = random.uniform(REACTION_MIN_WAIT, REACTION_MAX_WAIT)
+        asyncio.create_task(switch_to_green_light(bot, user_id, chat_id, user_name, callback.message.message_id, wait_time))
+        
+        asyncio.create_task(check_reaction_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
 
+async def switch_to_green_light(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int, wait_time: float):
+    await asyncio.sleep(wait_time)
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if not session or not session.get("active", False):
+        return
+    
+    session["green_light_time"] = time.time()
+    cooldown_manager.set_data(session_key, session)
+    
+    green_button = InlineKeyboardButton(
+        text="🟢🟢🟢 НАЖМИ! 🟢🟢🟢",
+        callback_data=f"reaction_green:{user_id}"
+    )
+    green_keyboard = InlineKeyboardMarkup(inline_keyboard=[[green_button]])
+    
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"🟢 <b>ЗЕЛЕНЫЙ СВЕТ!</b>\n\n"
+                 f"👤 <b>Работник:</b> {user_name}\n"
+                 f"⚡ <b>НАЖИМАЙТЕ БЫСТРЕЕ!</b>\n\n"
+                 f"🎯 <b>Чем быстрее - тем больше награда!</b>",
+            reply_markup=green_keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to switch to green light: {e}")
+
+async def check_reaction_timeout(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
+    await asyncio.sleep(REACTION_TIMEOUT)
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if session and session.get("active", False):
+        session["active"] = False
+        cooldown_manager.set_data(session_key, session)
+        
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"⏰ <b>Время вышло!</b>\n\n"
+                     f"❌ {user_name} не нажал(а) на кнопку вовремя\n"
+                     f"💸 <b>Награда не выплачена</b>\n\n"
+                     f"💡 <i>В следующий раз будьте внимательнее!</i>",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update timeout message: {e}")
 
 async def check_work_timeout(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
     await asyncio.sleep(WORK_TIME_LIMIT)
@@ -245,11 +365,119 @@ async def check_work_timeout(bot: Bot, user_id: int, chat_id: int, user_name: st
                      f"💡 <i>В следующий раз постарайтесь быть быстрее!</i>",
                 parse_mode="HTML",
                 disable_web_page_preview=True,
-
             )
         except Exception as e:
             logger.warning(f"Failed to update timeout message: {e}")
 
+@router.callback_query(F.data.startswith("reaction_red:"))
+async def reaction_red_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.data or not callback.from_user or not callback.message:
+        return
+    
+    await callback.answer("🔴 Слишком рано! Дождитесь зеленого света!", show_alert=True)
+    
+    try:
+        _, user_id_str = callback.data.split(":")
+        user_id = int(user_id_str)
+    except (ValueError, IndexError):
+        return
+    
+    if callback.from_user.id != user_id:
+        return
+    
+    chat_id = callback.message.chat.id
+    user_name = callback.from_user.first_name or "Пользователь"
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if not session or not session.get("active", False):
+        return
+    
+    # Mark as failed
+    session["active"] = False
+    cooldown_manager.set_data(session_key, session)
+    
+    await callback.message.edit_text(
+        f"❌ <b>Работа провалена!</b>\n\n"
+        f"👤 {user_name} нажал(а) слишком рано!\n"
+        f"🔴 <b>Нужно было дождаться зеленого света</b>\n"
+        f"💸 <b>Награда не выплачена</b>\n\n"
+        f"💡 <i>В следующий раз будьте терпеливее!</i>",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+    
+    logger.info(f"Reaction test failed (early click) by {user_name} ({user_id}) in chat {chat_id}")
+
+@router.callback_query(F.data.startswith("reaction_green:"))
+async def reaction_green_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.data or not callback.from_user or not callback.message:
+        return
+    
+    await callback.answer()
+    
+    try:
+        _, user_id_str = callback.data.split(":")
+        user_id = int(user_id_str)
+    except (ValueError, IndexError):
+        await callback.message.edit_text("❌ Ошибка обработки команды.")
+        return
+    
+    if callback.from_user.id != user_id:
+        await callback.answer("🚫 Это не ваша работа!", show_alert=True)
+        return
+    
+    chat_id = callback.message.chat.id
+    user = callback.from_user
+    user_name = user.first_name or "Пользователь"
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if not session or not session.get("active", False):
+        await callback.answer("⏰ Работа уже завершена!", show_alert=True)
+        return
+    
+    green_light_time = session.get("green_light_time")
+    if not green_light_time:
+        await callback.answer("⚠️ Ошибка: зеленый свет еще не загорелся!", show_alert=True)
+        return
+    
+    current_time = time.time()
+    reaction_time = current_time - green_light_time
+    
+    session["active"] = False
+    cooldown_manager.set_data(session_key, session)
+    
+    reward = calculate_reaction_reward(reaction_time)
+    
+    if reaction_time <= 0.5:
+        performance = "🔥 Невероятная реакция!"
+    elif reaction_time <= 1.0:
+        performance = "⚡ Отличная реакция!"
+    elif reaction_time <= 2.0:
+        performance = "👍 Хорошая реакция!"
+    else:
+        performance = "🐌 Можно быстрее!"
+    
+    await callback.message.edit_text(
+        f"✅ <b>Работа выполнена!</b>\n\n"
+        f"👤 <b>Работник:</b> {user_name}\n"
+        f"⏱️ <b>Время реакции:</b> {reaction_time:.3f} сек.\n"
+        f"💰 <b>Награда:</b> {reward} монет\n"
+        f"⏳ <b>Выплата через:</b> 30 минут\n\n"
+        f"{performance}",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+    
+    asyncio.create_task(schedule_payment(bot, user_id, chat_id, reward, user_name))
+    
+    logger.info(
+        f"Reaction test completed by {user.first_name} ({user_id}) in chat {chat_id}, "
+        f"reaction time: {reaction_time:.3f}s, reward: {reward}, payment scheduled"
+    )
 
 @router.callback_query(F.data.startswith("work_click:"))
 async def work_click_callback(callback: CallbackQuery, bot: Bot):
@@ -303,7 +531,6 @@ async def work_click_callback(callback: CallbackQuery, bot: Bot):
             f"💸 <b>Награда не выплачена</b>",
             parse_mode="HTML",
             disable_web_page_preview=True,
-
         )
         return
     
@@ -323,7 +550,6 @@ async def work_click_callback(callback: CallbackQuery, bot: Bot):
             f"⚡ <i>{'Отличная скорость!' if elapsed <= 7 else 'Можно быстрее!'}</i>\n",
             parse_mode="HTML",
             disable_web_page_preview=True,
-
         )
         
         asyncio.create_task(schedule_payment(bot, user_id, chat_id, reward, user_name))
@@ -345,7 +571,6 @@ async def work_click_callback(callback: CallbackQuery, bot: Bot):
             f"💡 <i>Нужно было нажать ровно {REQUIRED_CLICKS} раз!</i>",
             parse_mode="HTML",
             disable_web_page_preview=True,
-
         )
         
     else:
@@ -359,5 +584,4 @@ async def work_click_callback(callback: CallbackQuery, bot: Bot):
             reply_markup=keyboard,
             parse_mode="HTML",
             disable_web_page_preview=True,
-
         )
