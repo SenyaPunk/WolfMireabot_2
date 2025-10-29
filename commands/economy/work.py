@@ -29,6 +29,11 @@ REACTION_TIMEOUT = 30
 REACTION_MIN_WAIT = 3  
 REACTION_MAX_WAIT = 10  
 
+MEMORY_SHOW_TIME = 5  
+MEMORY_TIMEOUT = 40
+MEMORY_SEQUENCE_LENGTH = 5
+
+MEMORY_EMOJIS = ["🍎", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍒", "🍑", "🥝", "🍍"]
 
 def get_work_cooldown_key(user_id: int, chat_id: int) -> str:
     return f"work_cooldown:{user_id}:{chat_id}"
@@ -56,11 +61,11 @@ def create_work_keyboard(user_id: int) -> InlineKeyboardMarkup:
         text="🔨 Работать",
         callback_data=f"work_click:{user_id}"
     )
-    return InlineKeyboardMarkup(inline_keyboard=[[button]])
+    return InlineKeyboardMarkup(inline_keyboard=[[button]]) 
 
 
 def get_random_work_type() -> str:
-    return random.choice(['clicks', 'reaction'])
+    return random.choice(['reaction', 'clicks', 'memory']) 
 
 def calculate_reaction_reward(reaction_time: float) -> int:
     if reaction_time <= 0.5:
@@ -90,6 +95,19 @@ def calculate_reward(completion_time: float) -> int:
     else:
         return random.randint(1, 10)
 
+def calculate_memory_reward(completion_time: float) -> int:
+    if completion_time <= 10:
+        return random.randint(70, 90)
+    elif completion_time <= 15:
+        return random.randint(50, 70)
+    elif completion_time <= 20:
+        return random.randint(35, 55)
+    elif completion_time <= 30:
+        return random.randint(20, 40)
+    elif completion_time <= 40:
+        return random.randint(10, 25)
+    else:
+        return random.randint(5, 15)
 
 async def schedule_payment(bot: Bot, user_id: int, chat_id: int, reward: int, user_name: str):
     await asyncio.sleep(PAYMENT_DELAY)
@@ -184,7 +202,7 @@ async def work_command(message: Message, bot: Bot):
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
-    else:  # reaction
+    elif work_type == 'reaction':
         work_msg = await message.reply(
             f"🎯 <b>Тест на реакцию!</b>\n\n"
             f"👤 <b>Работник:</b> {user_name}\n"
@@ -195,6 +213,25 @@ async def work_command(message: Message, bot: Bot):
             f"  • Нажмите кнопку как можно быстрее!\n"
             f"⚠️ <b>Внимание:</b> Если нажмете на красный - проиграете!\n"
             f"💰 <b>Награда:</b> зависит от скорости реакции\n"
+            f"⚡ <b>Быстрее = больше монет!</b>\n"
+            f"💵 <b>Выплата:</b> через 5 минут после завершения\n\n"
+            f"👇 <b>Нажмите кнопку, чтобы начать!</b>",
+            reply_markup=start_keyboard,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    else:
+        work_msg = await message.reply(
+            f"🧠 <b>Тест на память!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"🎯 <b>Задача:</b> Запомнить последовательность смайликов\n"
+            f"📋 <b>Правила:</b>\n"
+            f"  • Вам покажут {MEMORY_SEQUENCE_LENGTH} смайликов на {MEMORY_SHOW_TIME} секунд\n"
+            f"  • Запомните их порядок!\n"
+            f"  • Затем воссоздайте последовательность\n"
+            f"  • Есть кнопка сброса, если ошиблись\n"
+            f"⚠️ <b>Внимание:</b> Одна ошибка - и награды не будет!\n"
+            f"💰 <b>Награда:</b> зависит от скорости выполнения\n"
             f"⚡ <b>Быстрее = больше монет!</b>\n"
             f"💵 <b>Выплата:</b> через 5 минут после завершения\n\n"
             f"👇 <b>Нажмите кнопку, чтобы начать!</b>",
@@ -266,7 +303,7 @@ async def work_start_callback(callback: CallbackQuery, bot: Bot):
         
         asyncio.create_task(check_work_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
     
-    else:  # reaction
+    elif work_type == 'reaction':
         red_button = InlineKeyboardButton(
             text="🔴🔴🔴 ЖДИТЕ 🔴🔴🔴",
             callback_data=f"reaction_red:{user_id}"
@@ -286,6 +323,220 @@ async def work_start_callback(callback: CallbackQuery, bot: Bot):
         asyncio.create_task(switch_to_green_light(bot, user_id, chat_id, user_name, callback.message.message_id, wait_time))
         
         asyncio.create_task(check_reaction_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
+    
+    else:
+        sequence = random.sample(MEMORY_EMOJIS, MEMORY_SEQUENCE_LENGTH)
+        session["memory_sequence"] = sequence
+        session["memory_input"] = []
+        session["memory_phase"] = "memorizing"
+        cooldown_manager.set_data(session_key, session)
+        
+        sequence_text = " ".join(sequence)
+        await callback.message.edit_text(
+            f"🧠 <b>ЗАПОМИНАЙТЕ!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"📋 <b>Последовательность:</b>\n"
+            f"<code>{sequence_text}</code>\n\n"
+            f"⏰ <b>У вас {MEMORY_SHOW_TIME} секунд!</b>\n"
+            f"👀 <b>Запомните порядок смайликов!</b>",
+            parse_mode="HTML"
+        )
+        
+        asyncio.create_task(hide_memory_sequence(bot, user_id, chat_id, user_name, callback.message.message_id))
+        
+        asyncio.create_task(check_memory_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
+
+async def hide_memory_sequence(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
+    await asyncio.sleep(MEMORY_SHOW_TIME)
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if not session or not session.get("active", False):
+        return
+    
+    session["memory_phase"] = "input"
+    session["input_start_time"] = time.time()
+    cooldown_manager.set_data(session_key, session)
+    
+    sequence = session.get("memory_sequence", [])
+    shuffled_emojis = sequence.copy()
+    random.shuffle(shuffled_emojis)
+    session["shuffled_emojis"] = shuffled_emojis
+    cooldown_manager.set_data(session_key, session)
+    
+    keyboard_buttons = []
+    
+    row1 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[:3]]
+    row2 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[3:6]]
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[row1, row2])
+    
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"🧠 <b>ВОССОЗДАЙТЕ ПОСЛЕДОВАТЕЛЬНОСТЬ!</b>\n\n"
+                 f"👤 <b>Работник:</b> {user_name}\n"
+                 f"📋 <b>Ваш ввод:</b> <code>[ ]</code>\n"
+                 f"📊 <b>Прогресс:</b> 0/{MEMORY_SEQUENCE_LENGTH}\n\n"
+                 f"🎯 <b>Нажимайте смайлики в правильном порядке!</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to hide memory sequence: {e}")
+
+async def check_memory_timeout(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
+    await asyncio.sleep(MEMORY_TIMEOUT)
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if session and session.get("active", False):
+        session["active"] = False
+        cooldown_manager.set_data(session_key, session)
+        
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"⏰ <b>Время вышло!</b>\n\n"
+                     f"❌ {user_name} не успел(а) выполнить задание\n"
+                     f"💸 <b>Награда не выплачена</b>\n\n"
+                     f"💡 <i>В следующий раз будьте быстрее!</i>",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update memory timeout message: {e}")
+
+@router.callback_query(F.data.startswith("memory_emoji:"))
+async def memory_emoji_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.data or not callback.from_user or not callback.message:
+        return
+    
+    await callback.answer()
+    
+    try:
+        parts = callback.data.split(":")
+        user_id = int(parts[1])
+        emoji = parts[2]
+    except (ValueError, IndexError):
+        await callback.message.edit_text("❌ Ошибка обработки команды.")
+        return
+    
+    if callback.from_user.id != user_id:
+        await callback.answer("🚫 Это не ваша работа!", show_alert=True)
+        return
+    
+    chat_id = callback.message.chat.id
+    user = callback.from_user
+    user_name = user.first_name or "Пользователь"
+    
+    session_key = get_work_session_key(user_id, chat_id)
+    session = cooldown_manager.get_data(session_key)
+    
+    if not session or not session.get("active", False):
+        await callback.answer("⏰ Рабочая смена уже завершена!", show_alert=True)
+        return
+    
+    if session.get("memory_phase") != "input":
+        await callback.answer("⚠️ Сейчас нельзя нажимать кнопки!", show_alert=True)
+        return
+    
+    memory_input = session.get("memory_input", [])
+    memory_sequence = session.get("memory_sequence", [])
+    
+    memory_input.append(emoji)
+    session["memory_input"] = memory_input
+    cooldown_manager.set_data(session_key, session)
+    
+    current_position = len(memory_input)
+    
+    if memory_input[current_position - 1] != memory_sequence[current_position - 1]:
+        session["active"] = False
+        cooldown_manager.set_data(session_key, session)
+        
+        correct_sequence = " ".join(memory_sequence)
+        user_sequence = " ".join(memory_input)
+        
+        await callback.message.edit_text(
+            f"❌ <b>Работа провалена!</b>\n\n"
+            f"👤 {user_name} ошибся в последовательности!\n"
+            f"📋 <b>Правильно:</b> <code>{correct_sequence}</code>\n"
+            f"📋 <b>Ваш ввод:</b> <code>{user_sequence}</code>\n"
+            f"💸 <b>Награда не выплачена</b>\n\n"
+            f"💡 <i>В следующий раз будьте внимательнее!</i>",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        
+        logger.info(f"Memory game failed by {user_name} ({user_id}) in chat {chat_id}")
+        return
+    
+    if current_position == MEMORY_SEQUENCE_LENGTH:
+        session["active"] = False
+        cooldown_manager.set_data(session_key, session)
+        
+        input_start_time = session.get("input_start_time", time.time())
+        completion_time = time.time() - input_start_time
+        
+        reward = calculate_memory_reward(completion_time)
+        
+        correct_sequence = " ".join(memory_sequence)
+        
+        if completion_time <= 15:
+            performance = "🔥 Невероятная память!"
+        elif completion_time <= 25:
+            performance = "⚡ Отличная работа!"
+        elif completion_time <= 35:
+            performance = "👍 Хорошо!"
+        else:
+            performance = "🐌 Можно быстрее!"
+        
+        await callback.message.edit_text(
+            f"✅ <b>Работа выполнена!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"📋 <b>Последовательность:</b> <code>{correct_sequence}</code>\n"
+            f"⏱️ <b>Время выполнения:</b> {completion_time:.1f} сек.\n"
+            f"💰 <b>Награда:</b> {reward} монет\n"
+            f"⏳ <b>Выплата через:</b> 5 минут\n\n"
+            f"{performance}",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        
+        asyncio.create_task(schedule_payment(bot, user_id, chat_id, reward, user_name))
+        
+        logger.info(
+            f"Memory game completed by {user.first_name} ({user_id}) in chat {chat_id}, "
+            f"time: {completion_time:.1f}s, reward: {reward}, payment scheduled"
+        )
+    else:
+        shuffled_emojis = session.get("shuffled_emojis", [])
+        input_text = " ".join(memory_input)
+        
+        row1 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[:3]]
+        row2 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[3:6]]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[row1, row2])
+        
+        await callback.message.edit_text(
+            f"🧠 <b>ВОССОЗДАЙТЕ ПОСЛЕДОВАТЕЛЬНОСТЬ!</b>\n\n"
+            f"👤 <b>Работник:</b> {user_name}\n"
+            f"📋 <b>Ваш ввод:</b> <code>{input_text}</code>\n"
+            f"📊 <b>Прогресс:</b> {current_position}/{MEMORY_SEQUENCE_LENGTH}\n\n"
+            f"🎯 <b>Продолжайте!</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+@router.callback_query(F.data.startswith("memory_reset:"))
+async def memory_reset_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.data or not callback.from_user or not callback.message:
+        return
+    
+    await callback.answer("🔄 Функция сброса отключена!", show_alert=True)
 
 async def switch_to_green_light(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int, wait_time: float):
     await asyncio.sleep(wait_time)
@@ -436,7 +687,7 @@ async def reaction_green_callback(callback: CallbackQuery, bot: Bot):
     session = cooldown_manager.get_data(session_key)
     
     if not session or not session.get("active", False):
-        await callback.answer("⏰ Работа уже завершена!", show_alert=True)
+        await callback.answer("⏰ Рабочая смена уже завершена!", show_alert=True)
         return
     
     green_light_time = session.get("green_light_time")
@@ -466,7 +717,7 @@ async def reaction_green_callback(callback: CallbackQuery, bot: Bot):
         f"👤 <b>Работник:</b> {user_name}\n"
         f"⏱️ <b>Время реакции:</b> {reaction_time:.3f} сек.\n"
         f"💰 <b>Награда:</b> {reward} монет\n"
-        f"⏳ <b>Выплата через:</b> 30 минут\n\n"
+        f"⏳ <b>Выплата через:</b> 5 минут\n\n"
         f"{performance}",
         parse_mode="HTML",
         disable_web_page_preview=True,
@@ -546,7 +797,7 @@ async def work_click_callback(callback: CallbackQuery, bot: Bot):
             f"📊 <b>Результат:</b> {clicks}/{REQUIRED_CLICKS} ✅\n"
             f"⏱️ <b>Время:</b> {elapsed:.1f} сек.\n"
             f"💰 <b>Награда:</b> {reward} монет\n"
-            f"⏳ <b>Выплата через:</b> 30 минут\n\n"
+            f"⏳ <b>Выплата через:</b> 5 минут\n\n"
             f"⚡ <i>{'Отличная скорость!' if elapsed <= 7 else 'Можно быстрее!'}</i>\n",
             parse_mode="HTML",
             disable_web_page_preview=True,
