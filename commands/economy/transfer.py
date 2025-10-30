@@ -1,5 +1,6 @@
 """Команда для перевода денег между пользователями."""
 import logging
+import math
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
 user_storage = UserStorage()
+
+
+def _parse_amount_token(token: str):
+    return float(token.replace(',', '.'))
 
 
 @router.message(Command("transfer"))
@@ -34,9 +39,9 @@ async def transfer_command(message: Message):
         
         if len(args) > 1:
             try:
-                amount = float(args[1])
+                amount = _parse_amount_token(args[1])
             except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+                await send_error_message(message, "Неверный формат суммы. Используйте число (пример: 100 или 1.5).")
                 return
         else:
             await send_error_message(
@@ -58,9 +63,9 @@ async def transfer_command(message: Message):
             return
         
         try:
-            amount = float(args[2])
+            amount = _parse_amount_token(args[2])
         except ValueError:
-            await send_error_message(message, "Неверный формат суммы. Используйте число.")
+            await send_error_message(message, "Неверный формат суммы. Используйте число (пример: 100 или 1.5).")
             return
     else:
         await send_error_message(
@@ -72,14 +77,22 @@ async def transfer_command(message: Message):
         )
         return
     
-    if target_user_id == sender_id:
-        await send_error_message(message, "Вы не можете перевести деньги самому себе.")
+    if not isinstance(amount, float) and not isinstance(amount, int):
+        await send_error_message(message, "Сумма должна быть числом.")
         return
-    
+
+    if not math.isfinite(amount):
+        await send_error_message(message, "Неверная сумма: число должно быть конечным (не NaN, не inf).")
+        return
+
     if amount <= 0:
         await send_error_message(message, "Сумма перевода должна быть положительной.")
         return
-    
+
+    if target_user_id == sender_id:
+        await send_error_message(message, "Вы не можете перевести деньги самому себе.")
+        return
+
     sender_balance = economy_manager.get_balance(sender_id)
     if sender_balance < amount:
         sender_link = get_user_link(sender_id)

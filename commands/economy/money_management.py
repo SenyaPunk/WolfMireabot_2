@@ -1,5 +1,6 @@
 """Команды для управления деньгами (только для админов)."""
 import logging
+import math
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -16,6 +17,18 @@ logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 admin_manager = AdminManager()
 user_storage = UserStorage()
+
+
+def _parse_amount_token(token: str) -> float:
+    try:
+        value = float(token.replace(',', '.'))
+    except ValueError:
+        raise ValueError("Неверный формат числа.")
+
+    if not math.isfinite(value):
+        raise ValueError("Число должно быть конечным (не NaN, не inf).")
+
+    return value
 
 
 @router.message(Command("add_money"))
@@ -40,21 +53,22 @@ async def add_money_command(message: Message):
         
         if len(args) > 1:
             try:
-                amount = float(args[1])
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+                amount = _parse_amount_token(args[1])
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         else:
             await send_error_message(message, "Укажите сумму.\nПример: /add_money 100")
             return
+
     else:
         if len(args) == 2:
             try:
-                amount = float(args[1])
+                amount = _parse_amount_token(args[1])
                 target_user_id = message.from_user.id
                 target_name = user_storage.get_display_name(target_user_id)
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         elif len(args) >= 3:
             username = args[1].lstrip('@')
@@ -71,9 +85,9 @@ async def add_money_command(message: Message):
             target_name = user_storage.get_display_name(target_user_id)
             
             try:
-                amount = float(args[2])
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+                amount = _parse_amount_token(args[2])
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         else:
             await send_error_message(
@@ -123,21 +137,22 @@ async def remove_money_command(message: Message):
         
         if len(args) > 1:
             try:
-                amount = float(args[1])
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+                amount = _parse_amount_token(args[1])
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         else:
             await send_error_message(message, "Укажите сумму.\nПример: /remove_money 100")
             return
+
     else:
         if len(args) == 2:
             try:
-                amount = float(args[1])
+                amount = _parse_amount_token(args[1])
                 target_user_id = message.from_user.id
                 target_name = user_storage.get_display_name(target_user_id)
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         elif len(args) >= 3:
             username = args[1].lstrip('@')
@@ -154,9 +169,9 @@ async def remove_money_command(message: Message):
             target_name = user_storage.get_display_name(target_user_id)
             
             try:
-                amount = float(args[2])
-            except ValueError:
-                await send_error_message(message, "Неверный формат суммы. Используйте число.")
+                amount = _parse_amount_token(args[2])
+            except ValueError as e:
+                await send_error_message(message, str(e))
                 return
         else:
             await send_error_message(
