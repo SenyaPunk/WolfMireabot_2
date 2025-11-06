@@ -8,7 +8,18 @@ from typing import Set, List
 logger = logging.getLogger(__name__)
 
 class AdminManager:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, admin_file: str = "admins.json"):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self, admin_file: str = "admins.json"):
+        if self._initialized:
+            return
+            
         data_dir = Path.cwd() / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -23,6 +34,8 @@ class AdminManager:
         except Exception:
             self.owner_id = 0
         self.load_admins()
+        
+        AdminManager._initialized = True
 
     def load_admins(self):
         try:
@@ -42,7 +55,6 @@ class AdminManager:
         try:
             with self.admin_file.open('w', encoding='utf-8') as f:
                 json.dump({'admins': sorted(list(self.admins))}, f, ensure_ascii=False, indent=2)
-            logger.info(f"Сохранено {len(self.admins)} администраторов в {self.admin_file}")
         except Exception as e:
             logger.error(f"Ошибка сохранения администраторов: {e}")
 
@@ -50,11 +62,9 @@ class AdminManager:
         return user_id == self.owner_id
 
     def is_admin(self, user_id: int) -> bool:
-        self.load_admins()
         return user_id in self.admins or self.is_owner(user_id)
 
     def add_admin(self, user_id: int) -> bool:
-        self.load_admins()
         if int(user_id) not in self.admins:
             self.admins.add(int(user_id))
             self.save_admins()
@@ -63,7 +73,6 @@ class AdminManager:
         return False
 
     def remove_admin(self, user_id: int) -> bool:
-        self.load_admins()
         if int(user_id) in self.admins:
             self.admins.remove(int(user_id))
             self.save_admins()
@@ -72,5 +81,4 @@ class AdminManager:
         return False
 
     def get_admins(self) -> List[int]:
-        self.load_admins()
         return sorted(list(self.admins))

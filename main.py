@@ -11,6 +11,7 @@ from aiogram.types import Message
 from commands.greetings import scheduler, setup_scheduler
 from utils.user_storage import UserStorage
 from middlewares.user_tracking import UserTrackingMiddleware
+from middlewares.ignore_old_updates import IgnoreOldUpdatesMiddleware
 
 load_dotenv()
 
@@ -24,6 +25,7 @@ dp = Dispatcher()
 
 user_storage = UserStorage()
 
+dp.update.outer_middleware(IgnoreOldUpdatesMiddleware())
 dp.update.outer_middleware(UserTrackingMiddleware(user_storage))
 
 # Регистрируем все команды (file manager)

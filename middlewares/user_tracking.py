@@ -27,6 +27,6 @@ class UserTrackingMiddleware(BaseMiddleware):
                     first_name=message.from_user.first_name,
                     last_name=message.from_user.last_name
                 )
-                logger.info(f"Отслежен пользователь: {message.from_user.id} (@{message.from_user.username})")
+                logger.debug(f"Отслежен пользователь: {message.from_user.id} (@{message.from_user.username})")
         
         return await handler(event, data)
