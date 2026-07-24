@@ -31,7 +31,7 @@ def _parse_amount_token(token: str) -> float:
     return value
 
 
-@router.message(Command("add_money"))
+@router.message(Command("add_money", "выдать_монеты"))
 async def add_money_command(message: Message):
     if not admin_manager.is_admin(message.from_user.id):
         await send_error_message(message, "Только администраторы могут использовать эту команду.")
@@ -115,7 +115,7 @@ async def add_money_command(message: Message):
     )
 
 
-@router.message(Command("remove_money"))
+@router.message(Command("remove_money", "забрать_монеты"))
 async def remove_money_command(message: Message):
     if not admin_manager.is_admin(message.from_user.id):
         await send_error_message(message, "Только администраторы могут использовать эту команду.")

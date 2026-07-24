@@ -28,5 +28,16 @@ class UserTrackingMiddleware(BaseMiddleware):
                     last_name=message.from_user.last_name
                 )
                 logger.debug(f"Отслежен пользователь: {message.from_user.id} (@{message.from_user.username})")
+                
+            # Также отслеживаем пользователя, на сообщение которого отвечают
+            if message.reply_to_message and message.reply_to_message.from_user and message.chat.type in ["group", "supergroup"]:
+                rep_user = message.reply_to_message.from_user
+                self.user_storage.add_user(
+                    user_id=rep_user.id,
+                    username=rep_user.username,
+                    first_name=rep_user.first_name,
+                    last_name=rep_user.last_name
+                )
+                logger.debug(f"Отслежен ответный пользователь: {rep_user.id} (@{rep_user.username})")
         
         return await handler(event, data)

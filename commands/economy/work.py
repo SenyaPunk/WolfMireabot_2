@@ -22,7 +22,7 @@ user_storage = UserStorage()
 
 WORK_COOLDOWN = 14400  
 WORK_TIME_LIMIT = 30   
-REQUIRED_CLICKS = 5   
+REQUIRED_CLICKS = 4   
 PAYMENT_DELAY = 300  
 
 REACTION_TIMEOUT = 30  
@@ -113,24 +113,43 @@ async def schedule_payment(bot: Bot, user_id: int, chat_id: int, reward: int, us
     await asyncio.sleep(PAYMENT_DELAY)
     
     try:
-        economy_manager.add_money(user_id, reward)
+        from utils.slave_manager import SlaveManager
+        slave_manager = SlaveManager()
+        
+        # Обрабатываем отчисления хозяину (30%), если пользователь находится в рабстве
+        slave_share, master_share, owner_id = slave_manager.process_slave_earnings(user_id, reward, percent=0.30)
+        economy_manager.add_money(user_id, slave_share)
         
         user_link = get_user_link(user_id, user_name)
-        await bot.send_message(
-            chat_id,
-            f"💰 <b>Зарплата получена!</b>\n\n"
-            f"👤 {user_link}\n"
-            f"💵 <b>Сумма:</b> {reward} монет\n\n"
-            f"✅ <i>Деньги зачислены на ваш счет!</i>",
-            parse_mode="HTML", 
-            disable_web_page_preview=True,
-        )
         
-        logger.info(f"Payment of {reward} coins delivered to user {user_id} in chat {chat_id}")
+        if owner_id and master_share > 0:
+            owner_link = get_user_link(owner_id)
+            await bot.send_message(
+                chat_id,
+                f"💰 <b>Зарплата получена!</b>\n\n"
+                f"👤 {user_link}\n"
+                f"💵 <b>Чистый доход:</b> {slave_share} монет\n"
+                f"👑 <b>Налог хозяину {owner_link}:</b> {master_share} монет (30%)\n\n"
+                f"✅ <i>Деньги зачислены на ваш счет!</i>",
+                parse_mode="HTML", 
+                disable_web_page_preview=True,
+            )
+        else:
+            await bot.send_message(
+                chat_id,
+                f"💰 <b>Зарплата получена!</b>\n\n"
+                f"👤 {user_link}\n"
+                f"💵 <b>Сумма:</b> {reward} монет\n\n"
+                f"✅ <i>Деньги зачислены на ваш счет!</i>",
+                parse_mode="HTML", 
+                disable_web_page_preview=True,
+            )
+        
+        logger.info(f"Payment of {slave_share} (tax: {master_share}) coins delivered to user {user_id} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to deliver payment to user {user_id}: {e}")
 
-@router.message(Command("work"))
+@router.message(Command("work", "работать"))
 async def work_command(message: Message, bot: Bot):
     if not message.from_user:
         return
@@ -332,29 +351,56 @@ async def work_start_callback(callback: CallbackQuery, bot: Bot):
         cooldown_manager.set_data(session_key, session)
         
         sequence_text = " ".join(sequence)
+        
+        # Вместо автоскрытия даем пользователю кнопку готовности, чтобы медленный интернет не съедал время просмотра
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧠 Я запомнил(а), готов вводить!", callback_data=f"memory_ready:{user_id}")]
+        ])
+        
         await callback.message.edit_text(
             f"🧠 <b>ЗАПОМИНАЙТЕ!</b>\n\n"
             f"👤 <b>Работник:</b> {user_name}\n"
             f"📋 <b>Последовательность:</b>\n"
             f"<code>{sequence_text}</code>\n\n"
-            f"⏰ <b>У вас {MEMORY_SHOW_TIME} секунд!</b>\n"
-            f"👀 <b>Запомните порядок смайликов!</b>",
+            f"👀 <b>Запомните порядок смайликов и нажмите кнопку ниже, когда будете готовы!</b>",
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
         
-        asyncio.create_task(hide_memory_sequence(bot, user_id, chat_id, user_name, callback.message.message_id))
-        
         asyncio.create_task(check_memory_timeout(bot, user_id, chat_id, user_name, callback.message.message_id))
 
-async def hide_memory_sequence(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
-    await asyncio.sleep(MEMORY_SHOW_TIME)
+@router.callback_query(F.data.startswith("memory_ready:"))
+async def memory_ready_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.data or not callback.from_user or not callback.message:
+        return
+        
+    await callback.answer()
+    
+    try:
+        _, user_id_str = callback.data.split(":")
+        user_id = int(user_id_str)
+    except (ValueError, IndexError):
+        await callback.message.edit_text("❌ Ошибка обработки команды.")
+        return
+        
+    if callback.from_user.id != user_id:
+        await callback.answer("🚫 Это не ваша работа!", show_alert=True)
+        return
+        
+    chat_id = callback.message.chat.id
+    user = callback.from_user
+    user_name = user.first_name or "Пользователь"
     
     session_key = get_work_session_key(user_id, chat_id)
     session = cooldown_manager.get_data(session_key)
     
     if not session or not session.get("active", False):
+        await callback.answer("⏰ Рабочая смена уже завершена!", show_alert=True)
         return
-    
+        
+    if session.get("memory_phase") != "memorizing":
+        return
+        
     session["memory_phase"] = "input"
     session["input_start_time"] = time.time()
     cooldown_manager.set_data(session_key, session)
@@ -365,17 +411,13 @@ async def hide_memory_sequence(bot: Bot, user_id: int, chat_id: int, user_name: 
     session["shuffled_emojis"] = shuffled_emojis
     cooldown_manager.set_data(session_key, session)
     
-    keyboard_buttons = []
-    
     row1 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[:3]]
     row2 = [InlineKeyboardButton(text=emoji, callback_data=f"memory_emoji:{user_id}:{emoji}") for emoji in shuffled_emojis[3:6]]
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[row1, row2])
     
     try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
+        await callback.message.edit_text(
             text=f"🧠 <b>ВОССОЗДАЙТЕ ПОСЛЕДОВАТЕЛЬНОСТЬ!</b>\n\n"
                  f"👤 <b>Работник:</b> {user_name}\n"
                  f"📋 <b>Ваш ввод:</b> <code>[ ]</code>\n"
@@ -385,7 +427,7 @@ async def hide_memory_sequence(bot: Bot, user_id: int, chat_id: int, user_name: 
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.warning(f"Failed to hide memory sequence: {e}")
+        logger.warning(f"Failed to show memory input keyboard: {e}")
 
 async def check_memory_timeout(bot: Bot, user_id: int, chat_id: int, user_name: str, message_id: int):
     await asyncio.sleep(MEMORY_TIMEOUT)
@@ -547,15 +589,13 @@ async def switch_to_green_light(bot: Bot, user_id: int, chat_id: int, user_name:
     if not session or not session.get("active", False):
         return
     
-    session["green_light_time"] = time.time()
-    cooldown_manager.set_data(session_key, session)
-    
     green_button = InlineKeyboardButton(
         text="🟢🟢🟢 НАЖМИ! 🟢🟢🟢",
         callback_data=f"reaction_green:{user_id}"
     )
     green_keyboard = InlineKeyboardMarkup(inline_keyboard=[[green_button]])
     
+    t_before = time.time()
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
@@ -567,6 +607,18 @@ async def switch_to_green_light(bot: Bot, user_id: int, chat_id: int, user_name:
             reply_markup=green_keyboard,
             parse_mode="HTML"
         )
+        t_after = time.time()
+        api_duration = t_after - t_before
+        
+        # Математический учет задержки Telegram:
+        # t_after фиксирует точное время завершения редактирования на серверах Telegram.
+        # Задержка клиентской сети (доставка сообщения + передача callback) оценивается как:
+        # tg_latency_offset = base_rtt (0.35s) + 0.5 * api_duration
+        tg_latency_offset = 0.35 + (0.5 * api_duration)
+        
+        session["green_light_time"] = t_after
+        session["tg_latency_offset"] = tg_latency_offset
+        cooldown_manager.set_data(session_key, session)
     except Exception as e:
         logger.warning(f"Failed to switch to green light: {e}")
 
@@ -696,7 +748,11 @@ async def reaction_green_callback(callback: CallbackQuery, bot: Bot):
         return
     
     current_time = time.time()
-    reaction_time = current_time - green_light_time
+    raw_reaction_time = current_time - green_light_time
+    tg_latency_offset = session.get("tg_latency_offset", 0.35)
+    
+    # Чистая скорость реакции пользователя после математического вычета задержки сети
+    reaction_time = max(0.10, raw_reaction_time - tg_latency_offset)
     
     session["active"] = False
     cooldown_manager.set_data(session_key, session)
@@ -715,7 +771,7 @@ async def reaction_green_callback(callback: CallbackQuery, bot: Bot):
     await callback.message.edit_text(
         f"✅ <b>Работа выполнена!</b>\n\n"
         f"👤 <b>Работник:</b> {user_name}\n"
-        f"⏱️ <b>Время реакции:</b> {reaction_time:.3f} сек.\n"
+        f"⏱️ <b>Время реакции:</b> {reaction_time:.3f} сек. <i>(с учетом задержки TG)</i>\n"
         f"💰 <b>Награда:</b> {reward} монет\n"
         f"⏳ <b>Выплата через:</b> 5 минут\n\n"
         f"{performance}",

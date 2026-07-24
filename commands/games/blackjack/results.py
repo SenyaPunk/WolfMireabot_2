@@ -5,11 +5,14 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 
 from utils.economy_manager import EconomyManager
+from utils.slave_manager import SlaveManager
 from utils.game_state_manager import GameStateManager
 from utils.user_link import get_user_link
 
 logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
+slave_manager = SlaveManager()
+
 
 
 def calculate_hand_value(cards: list) -> int:
@@ -118,12 +121,23 @@ async def show_results(bot: Bot, chat_id: int, game_key: str, game_state_manager
                     payout = 0
                     win_amount = 0
             
-            if payout > 0:
-                economy_manager.add_money(user_id, payout)
-                logger.info(f"Paid {payout} to user {user_id} (bet: {bet_amount}, win: {win_amount})")
+            master_text = ""
+            if win_amount > 0:
+                slave_share, master_share, owner_id = slave_manager.process_slave_earnings(user_id, win_amount, percent=0.30)
+                actual_payout = bet_amount + slave_share
+                if owner_id:
+                    owner_link = get_user_link(owner_id)
+                    master_text = f" (👑 {owner_link} забрал {master_share})"
+            else:
+                actual_payout = payout
+            
+            if actual_payout > 0:
+                economy_manager.add_money(user_id, actual_payout)
+                logger.info(f"Paid {actual_payout} to user {user_id} (bet: {bet_amount}, win: {win_amount})")
             
             if win_amount > 0:
-                result_line = f"• {player_link}: {hand_str} ({hand_value}) - {result_text} 💰 +{win_amount}"
+                effective_win = slave_share if owner_id else win_amount
+                result_line = f"• {player_link}: {hand_str} ({hand_value}) - {result_text} 💰 +{effective_win}{master_text}"
             elif win_amount == 0 and payout > 0:
                 result_line = f"• {player_link}: {hand_str} ({hand_value}) - {result_text} 🔄 Возврат {bet_amount}"
             else:

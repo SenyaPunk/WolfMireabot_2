@@ -49,11 +49,22 @@ class UserStorage:
 
     def save_users(self):
         try:
-            with self.storage_file.open('w', encoding='utf-8') as f:
+            import time
+            temp_file = self.storage_file.with_suffix(".tmp")
+            with temp_file.open('w', encoding='utf-8') as f:
                 json.dump({
                     'users': self.users,
                     'user_info': {str(k): v for k, v in self.user_info.items()}
                 }, f, ensure_ascii=False, indent=2)
+            
+            for attempt in range(5):
+                try:
+                    temp_file.replace(self.storage_file)
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.05)
             logger.info(f"Сохранено {len(self.users)} пользователей в {self.storage_file}")
         except Exception as e:
             logger.error(f"Ошибка сохранения пользователей: {e}")
@@ -65,6 +76,13 @@ class UserStorage:
 
         if user_id not in self.user_info or self.user_info[user_id] != user_data:
             self.user_info[user_id] = user_data
+            updated = True
+
+        # Удаляем любые старые юзернеймы этого пользователя
+        old_usernames = [uname for uname, uid in self.users.items() if uid == user_id and uname != username]
+        if old_usernames:
+            for old_uname in old_usernames:
+                del self.users[old_uname]
             updated = True
 
         if username:

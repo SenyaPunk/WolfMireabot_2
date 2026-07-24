@@ -10,6 +10,8 @@ from utils.game_state_manager import GameStateManager
 from utils.user_link import get_user_link
 from utils.user_storage import UserStorage
 
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
+
 router = Router()
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ FIRST_WARNING_TIME = 30
 AUTO_ACTION_TIME = 60  
 
 button_cooldowns = {}
+
 
 player_timers = {}
 
@@ -256,11 +259,24 @@ async def start_playing_stage(bot: Bot, chat_id: int, game_key: str, game_state_
     
     game_state_manager.update_game(game_key, game_data)
     
-    msg = await bot.send_message(
-        chat_id=chat_id,
-        text="🎰 <b>БЛЕКДЖЕК - ИГРА</b>\n\n<i>Начинаем игру...</i>",
-        parse_mode="HTML"
-    )
+    try:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text="🎰 <b>БЛЕКДЖЕК - ИГРА</b>\n\n<i>Начинаем игру...</i>",
+            parse_mode="HTML"
+        )
+    except TelegramRetryAfter as e:
+        logger.warning(f"TelegramRetryAfter in start_playing_stage: sleeping {e.retry_after}s for chat {chat_id}")
+        await asyncio.sleep(e.retry_after)
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text="🎰 <b>БЛЕКДЖЕК - ИГРА</b>\n\n<i>Начинаем игру...</i>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send start playing message: {e}")
+        return
+
     
     game_data["playing_message_id"] = msg.message_id
     game_state_manager.update_game(game_key, game_data)
@@ -593,6 +609,17 @@ async def handle_hit_action(bot: Bot, chat_id: int, game_key: str, user_id: int,
         else:
             await show_player_action_menu(bot, chat_id, game_key, game_state_manager, is_new_player=True)
     else:
+        # Игрок успешно взял карту и не перебрал (очки <= 21).
+        # Сбрасываем и перезапускаем таймер АФК, так как он совершил действие.
+        cancel_player_timer(game_key)
+        await delete_player_warning_messages(bot, chat_id, game_key, user_id, game_state_manager)
+        
+        # Запускаем новый таймер АФК
+        timer_task = asyncio.create_task(
+            player_action_timeout_handler(bot, chat_id, game_key, user_id, playing_message_id)
+        )
+        player_timers[game_key] = timer_task
+        
         game_state_manager.update_game(game_key, game_data)
         await show_player_action_menu(bot, chat_id, game_key, game_state_manager, is_new_player=False)
 

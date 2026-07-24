@@ -21,7 +21,7 @@ def _parse_amount_token(token: str):
     return float(token.replace(',', '.'))
 
 
-@router.message(Command("transfer"))
+@router.message(Command("transfer", "перевод", "передать"))
 async def transfer_command(message: Message):
     if message.chat.type == "private":
         await send_error_message(message, "Эта команда доступна только в групповых чатах.")

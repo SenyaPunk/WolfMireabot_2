@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 
 
-@router.message(Command("top"))
+@router.message(Command("top", "топ"))
 async def top_command(message: Message):
     if message.chat.type == "private":
         await send_error_message(message, "❌ Эта команда доступна только в групповых чатах.")

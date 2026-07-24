@@ -16,7 +16,7 @@ admin_manager = AdminManager()
 user_storage = UserStorage()
 
 # Добавить админа
-@router.message(Command("add_admin"))
+@router.message(Command("add_admin", "добавить_админа"))
 async def add_admin_command(message: Message):
     if not admin_manager.is_owner(message.from_user.id):
         await send_error_message(message, "Только владелец бота может добавлять администраторов.")
@@ -69,7 +69,7 @@ async def add_admin_command(message: Message):
             await message.reply(f"ℹ️ Пользователь {target_username} уже является администратором.")
 
 # удалить админа
-@router.message(Command("remove_admin"))
+@router.message(Command("remove_admin", "удалить_админа"))
 async def remove_admin_command(message: Message):
     if not admin_manager.is_owner(message.from_user.id):
         await send_error_message(message, "Только владелец бота может удалять администраторов.")
@@ -122,7 +122,7 @@ async def remove_admin_command(message: Message):
             await message.reply(f"ℹ️ Пользователь {target_username} не является администратором.")
 
 # список админов 
-@router.message(Command("list_admin"))
+@router.message(Command("list_admin", "админы"))
 async def list_admin_command(message: Message):
     if not admin_manager.is_admin(message.from_user.id):
         await send_error_message(message, "Только администраторы могут просматривать список администраторов.")
@@ -155,3 +155,58 @@ async def list_admin_command(message: Message):
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
+
+# Сброс кулдаунов пользователю или себе
+@router.message(Command("reset_cooldown", "reset_cd", "сбросить_кд", "снять_кд", "сброс_кд"))
+async def reset_cooldown_command(message: Message):
+    if not admin_manager.is_owner(message.from_user.id) and not admin_manager.is_admin(message.from_user.id):
+        await send_error_message(message, "Только владелец или администраторы бота могут сбрасывать кулдауны.")
+        return
+
+    target_user_id = None
+    target_username = None
+
+    if message.reply_to_message:
+        target_user_id = message.reply_to_message.from_user.id
+        target_username = message.reply_to_message.from_user.first_name or f"ID {target_user_id}"
+    else:
+        args = message.text.split()
+        if len(args) > 1:
+            raw_arg = args[1].lstrip('@')
+            if raw_arg.isdigit():
+                target_user_id = int(raw_arg)
+                target_username = user_storage.get_display_name(target_user_id) or f"ID {target_user_id}"
+            else:
+                target_user_id = user_storage.get_user_id(raw_arg)
+                if target_user_id:
+                    target_username = user_storage.get_display_name(target_user_id)
+                else:
+                    await send_error_message(
+                        message,
+                        f"Пользователь @{raw_arg} не найден в базе данных.\n"
+                        "Укажите @username, ID пользователя или ответьте на его сообщение."
+                    )
+                    return
+        else:
+            target_user_id = message.from_user.id
+            target_username = message.from_user.first_name or "Себе"
+
+    from utils.cooldown_manager import CooldownManager
+    cooldown_manager = CooldownManager()
+    count = cooldown_manager.reset_user_cooldowns(target_user_id)
+
+    target_link = get_user_link(target_user_id, target_username)
+
+    if count > 0:
+        await message.reply(
+            f"⚡ <b>Кулдауны успешно сброшены!</b>\n\n"
+            f"👤 <b>Пользователь:</b> {target_link}\n"
+            f"🗑️ <b>Сброшено записей:</b> {count}\n\n"
+            f"✅ <i>Все команды (/work, /freelance и др.) доступны снова без ожидания!</i>",
+            parse_mode="HTML"
+        )
+    else:
+        await message.reply(
+            f"ℹ️ У пользователя {target_link} нет активных задержек (кулдаунов).",
+            parse_mode="HTML"
+        )

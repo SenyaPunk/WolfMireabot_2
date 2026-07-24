@@ -185,7 +185,7 @@ async def start_blackjack_game(bot: Bot, chat_id: int, message_id: int):
     await start_betting_stage(bot, chat_id, game_key, game_state_manager)
 
 
-@router.message(Command("блекджек"))
+@router.message(Command("blackjack", "блекджек"))
 async def blackjack_command(message: Message, bot: Bot):
     if not message.from_user:
         return
@@ -228,38 +228,40 @@ async def blackjack_command(message: Message, bot: Bot):
 
     photo_url = "https://img.dni.ru/binaries/game/16/list.jpg"
 
-    recruitment_msg = await bot.send_photo(
-        chat_id=chat_id,
-        photo=photo_url,
-        caption=(
-            f"🎰 <b>БЛЕКДЖЕК - НАБОР ИГРОКОВ</b>\n\n"
-            f"⏰ <b>Время на запись:</b> {format_time_remaining(RECRUITMENT_TIME)}\n"
-            f"👥 <b>Игроков:</b> 0/{MAX_PLAYERS}\n"
-            f"🎯 <b>Минимум для начала:</b> {MIN_PLAYERS} игрока\n"
-            f"💰 <b>Минимальный баланс:</b> {MIN_BALANCE} монет\n\n"
-            f"📋 <b>Правила:</b>\n"
-            f"• Стандартная колода карт (52 карты)\n"
-            f"• Цель: набрать 21 очко или близко к этому путем нажатием на Взять карту. "
-            f"Если вы превысите 21 очко - вы проиграете (перебор)\n"
-            f"• Туз = 1 или 11, фигуры = 10\n"
-            f"• Больше 21 = проигрыш\n\n"
-            f"⚡ <b>Команды админа:</b>\n"
-            f"• /блекджек+30сек - добавить 30 секунд\n"
-            f"• /блекджек_начать - начать досрочно\n\n"
-            f"👥 <b>Игроки:</b>\n<i>Пока никого нет...</i>"
-        ),
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        recruitment_msg = await bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_url,
+            caption=(
+                f"🎰 <b>БЛЕКДЖЕК - НАБОР ИГРОКОВ</b>\n\n"
+                f"⏰ <b>Время на запись:</b> {format_time_remaining(RECRUITMENT_TIME)}\n"
+                f"👥 <b>Игроков:</b> 0/{MAX_PLAYERS}\n"
+                f"🎯 <b>Минимум для начала:</b> {MIN_PLAYERS} игрока\n"
+                f"💰 <b>Минимальный баланс:</b> {MIN_BALANCE} монет\n\n"
+                f"📋 <b>Правила:</b>\n"
+                f"• Стандартная колода карт (52 карты)\n"
+                f"• Цель: набрать 21 очко или близко к этому путем нажатия на Взять карту. "
+                f"Если вы превысите 21 очко - вы проиграете (перебор)\n"
+                f"• Туз = 1 или 11, фигуры = 10\n"
+                f"• Больше 21 = проигрыш\n\n"
+                f"⚡ <b>Команды админа:</b>\n"
+                f"• /блекджек+30сек - добавить 30 секунд\n"
+                f"• /блекджек_начать - начать досрочно\n\n"
+                f"👥 <b>Игроки:</b>\n<i>Пока никого нет...</i>"
+            ),
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        active_games[game_key]["message_id"] = recruitment_msg.message_id
+        asyncio.create_task(recruitment_timer(bot, chat_id, recruitment_msg.message_id))
+        logger.info(f"Blackjack recruitment started by {message.from_user.first_name} ({message.from_user.id}) in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send recruitment message for blackjack in chat {chat_id}: {e}", exc_info=True)
+        active_games.pop(game_key, None)
+        await send_error_message(message, "❌ Произошла ошибка при запуске набора в Блекджек.")
 
-    active_games[game_key]["message_id"] = recruitment_msg.message_id
-    
-    asyncio.create_task(recruitment_timer(bot, chat_id, recruitment_msg.message_id))
-    
-    logger.info(f"Blackjack recruitment started by {message.from_user.first_name} ({message.from_user.id}) in chat {chat_id}")
 
-
-@router.message(Command("блекджек+30сек"))
+@router.message(Command("blackjack+30sec", "блекджек+30сек"))
 async def blackjack_add_time_command(message: Message, bot: Bot):
     if not message.from_user:
         return
@@ -301,7 +303,7 @@ async def blackjack_add_time_command(message: Message, bot: Bot):
     logger.info(f"30 seconds added to blackjack recruitment by {message.from_user.first_name} ({message.from_user.id}) in chat {chat_id}")
 
 
-@router.message(Command("блекджек_начать"))
+@router.message(Command("blackjack_start", "блекджек_начать"))
 async def blackjack_start_early_command(message: Message, bot: Bot):
     if not message.from_user:
         return
@@ -396,11 +398,37 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     })
     
     active_games[game_key]["players"] = players
+    logger.info(f"Player {user.first_name} ({user_id}) joined blackjack in chat {chat_id}")
     
-    await callback.answer(f"✅ Вы присоединились к игре! ({len(players)}/{MAX_PLAYERS})")
+    await callback.answer(f"✅ Вы присоединились к игре! ({len(players)}/{MAX_PLAYERS})", show_alert=True)
     
     message_id = game_data.get("message_id")
     if message_id:
         await update_recruitment_message(bot, chat_id, message_id)
+
+
+@router.message(Command("blackjack_reset", "блекджек_сброс"))
+async def blackjack_reset_command(message: Message, bot: Bot):
+    """Принудительный сброс зависшей игры блекджек администратором."""
+    if not message.from_user or not admin_manager.is_admin(message.from_user.id):
+        await send_error_message(message, "🚫 Только администраторы могут сбрасывать игру!")
+        return
+        
+    chat_id = message.chat.id
+    game_key = get_game_key(chat_id)
     
-    logger.info(f"Player {user.first_name} ({user_id}) joined blackjack in chat {chat_id}")
+    active_games.pop(game_key, None)
+    
+    if game_state_manager.game_exists(game_key):
+        game_data = game_state_manager.get_game(game_key)
+        if game_data:
+            bets = game_data.get("bets", {})
+            for player in game_data.get("players", []):
+                uid = player.get("user_id") if isinstance(player, dict) else player
+                bet_amount = bets.get(str(uid), 0)
+                if bet_amount > 0:
+                    economy_manager.add_money(uid, bet_amount)
+        game_state_manager.delete_game(game_key)
+        
+    await message.reply("✅ Сессия игры Блекджек в этом чате успешно сброшена! Все заблокированные ставки возвращены.")
+

@@ -8,9 +8,14 @@ from .money_management import router as money_router
 from .top import router as top_router
 from .transfer import router as transfer_router
 from .work import router as work_router
+from .slaves import router as slaves_router
+from .freelance import router as freelance_router
 
 router.include_router(balance_router)
 router.include_router(money_router)
 router.include_router(top_router)
 router.include_router(transfer_router)
 router.include_router(work_router)
+router.include_router(slaves_router)
+router.include_router(freelance_router)
+

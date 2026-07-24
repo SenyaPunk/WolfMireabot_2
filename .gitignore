@@ -25,6 +25,10 @@ MANIFEST
 
 
 .env
+.venv/
+vps_*.txt
+working_proxy.txt
+dry_run_test.py
 main.zip
 .vscode
 main1.zip

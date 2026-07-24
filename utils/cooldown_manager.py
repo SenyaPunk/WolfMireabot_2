@@ -102,3 +102,25 @@ class CooldownManager:
             del self.cooldowns[key]
             self._modified = True
             self.save_cooldowns()
+
+    def reset_user_cooldowns(self, user_id: int, cd_type: str = "all") -> int:
+        """Сбрасывает кулдауны пользователя. Возвращает количество удаленных записей."""
+        keys_to_delete = []
+        user_str = str(user_id)
+        
+        for key in list(self.cooldowns.keys()):
+            if f":{user_id}:" in key or key.endswith(f":{user_id}") or key.startswith(f"freelance_session:{user_id}"):
+                if cd_type == "all":
+                    keys_to_delete.append(key)
+                elif cd_type in key:
+                    keys_to_delete.append(key)
+                    
+        count = len(keys_to_delete)
+        for k in keys_to_delete:
+            del self.cooldowns[k]
+            
+        if count > 0:
+            self._modified = True
+            self.save_cooldowns()
+            
+        return count

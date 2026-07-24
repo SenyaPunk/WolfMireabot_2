@@ -1,2 +1,7 @@
 aiogram==3.17.0
 python-dotenv==1.1.1
+apscheduler
+requests
+Pillow
+aiohttp-socks
+
