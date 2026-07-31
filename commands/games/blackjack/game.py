@@ -13,6 +13,13 @@ from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
 from utils.game_state_manager import GameStateManager
 from .betting import start_betting_stage
+from .helpers import (
+    safe_edit_message_caption,
+    safe_edit_message_text,
+    safe_send_message,
+    safe_delete_message,
+    abort_game_and_refund
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -58,7 +65,7 @@ async def update_recruitment_message(bot: Bot, chat_id: int, message_id: int):
     
     if remaining_time <= 0:
         if len(players) < MIN_PLAYERS:
-            del active_games[game_key]
+            active_games.pop(game_key, None)
             
             cancelled_caption = (
                 f"❌ <b>БЛЕКДЖЕК - ОТМЕНЕН</b>\n\n"
@@ -66,23 +73,13 @@ async def update_recruitment_message(bot: Bot, chat_id: int, message_id: int):
                 f"👥 Недостаточно игроков: {len(players)}/{MIN_PLAYERS}\n\n"
                 f"💡 <i>Для начала игры нужно минимум {MIN_PLAYERS} игрока</i>"
             )
-            try:
-                await bot.edit_message_caption(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    caption=cancelled_caption,
-                    parse_mode="HTML"
+            edited = await safe_edit_message_caption(
+                bot, chat_id, message_id, caption=cancelled_caption, parse_mode="HTML"
+            )
+            if not edited:
+                await safe_edit_message_text(
+                    bot, chat_id, message_id, text=cancelled_caption, parse_mode="HTML"
                 )
-            except Exception:
-                try:
-                    await bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        text=cancelled_caption,
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to update cancelled game message: {e}")
         else:
             await start_blackjack_game(bot, chat_id, message_id)
         return
@@ -119,45 +116,38 @@ async def update_recruitment_message(bot: Bot, chat_id: int, message_id: int):
         f"👥 <b>Игроки:</b>\n{players_text}"
     )
     
-    try:
-        await bot.edit_message_caption(
-            chat_id=chat_id,
-            message_id=message_id,
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode="HTML"
+    edited = await safe_edit_message_caption(
+        bot, chat_id, message_id, caption=caption, reply_markup=keyboard, parse_mode="HTML"
+    )
+    if not edited:
+        await safe_edit_message_text(
+            bot, chat_id, message_id, text=caption, reply_markup=keyboard, parse_mode="HTML"
         )
-    except Exception:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=caption,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to update recruitment message: {e}")
 
 
 async def recruitment_timer(bot: Bot, chat_id: int, message_id: int):
     game_key = get_game_key(chat_id)
     
     while game_key in active_games:
-        game_data = active_games[game_key]
-        end_time = game_data.get("end_time", 0)
-        remaining_time = max(0, end_time - time.time())
-        
-        if remaining_time <= 0:
+        try:
+            game_data = active_games[game_key]
+            end_time = game_data.get("end_time", 0)
+            remaining_time = max(0, end_time - time.time())
+            
+            if remaining_time <= 0:
+                await update_recruitment_message(bot, chat_id, message_id)
+                break
+            
             await update_recruitment_message(bot, chat_id, message_id)
+            
+            if remaining_time > 10:
+                await asyncio.sleep(10)
+            else:
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"Error in recruitment_timer for chat {chat_id}: {e}", exc_info=True)
+            active_games.pop(game_key, None)
             break
-        
-        await update_recruitment_message(bot, chat_id, message_id)
-        
-        if remaining_time > 10:
-            await asyncio.sleep(10)
-        else:
-            await asyncio.sleep(1)
 
 
 async def start_blackjack_game(bot: Bot, chat_id: int, message_id: int):
@@ -166,7 +156,7 @@ async def start_blackjack_game(bot: Bot, chat_id: int, message_id: int):
     if game_key not in active_games:
         return
     
-    game_data = active_games[game_key]
+    game_data = active_games.get(game_key, {})
     players = game_data.get("players", [])
     
     game_state = {
@@ -177,12 +167,15 @@ async def start_blackjack_game(bot: Bot, chat_id: int, message_id: int):
     }
     
     game_state_manager.create_game(game_key, game_state)
-    
-    del active_games[game_key]
+    active_games.pop(game_key, None)
     
     logger.info(f"Blackjack game started in chat {chat_id} with {len(players)} players")
     
-    await start_betting_stage(bot, chat_id, game_key, game_state_manager)
+    try:
+        await start_betting_stage(bot, chat_id, game_key, game_state_manager)
+    except Exception as e:
+        logger.error(f"Failed to start betting stage in chat {chat_id}: {e}", exc_info=True)
+        await abort_game_and_refund(bot, chat_id, game_key, game_state_manager, f"Ошибка начала приема ставок: {e}")
 
 
 @router.message(Command("blackjack", "блекджек"))
@@ -201,13 +194,19 @@ async def blackjack_command(message: Message, bot: Bot):
     chat_id = message.chat.id
     game_key = get_game_key(chat_id)
     
-    logger.info(f"[DEBUG] Checking game existence for {game_key}")
-    logger.info(f"[DEBUG] game_key in active_games: {game_key in active_games}")
-    logger.info(f"[DEBUG] game_state_manager.game_exists(game_key): {game_state_manager.game_exists(game_key)}")
-    logger.info(f"[DEBUG] active_games keys: {list(active_games.keys())}")
-    
-    if game_key in active_games or game_state_manager.game_exists(game_key):
-        await send_error_message(message, "🚫 В этом чате уже идет набор игроков или игра! Дождитесь завершения текущей игры.")
+    # Проверяем, есть ли застрявшая старая игра в game_state_manager
+    if game_state_manager.game_exists(game_key):
+        game_data = game_state_manager.get_game(game_key)
+        started_at = game_data.get("started_at", 0) if isinstance(game_data, dict) else 0
+        if started_at == 0 or (time.time() - started_at > 300):
+            logger.warning(f"Auto-cleaning stuck game {game_key} in chat {chat_id}")
+            await abort_game_and_refund(bot, chat_id, game_key, game_state_manager, "Сброс зависшей старой сессии")
+        else:
+            await send_error_message(message, "🚫 В этом чате уже идет игра! Дождитесь ее завершения.")
+            return
+
+    if game_key in active_games:
+        await send_error_message(message, "🚫 В этом чате уже идет набор игроков! Дождитесь завершения набора.")
         return
     
     end_time = time.time() + RECRUITMENT_TIME
@@ -217,15 +216,12 @@ async def blackjack_command(message: Message, bot: Bot):
         "chat_id": chat_id
     }
     
-    logger.info(f"[DEBUG] Created new game in active_games: {game_key}")
-
     join_button = InlineKeyboardButton(
         text=f"Присоединиться к игре 0/{MAX_PLAYERS}",
         callback_data=f"blackjack_join:{chat_id}"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[join_button]])
     
-
     photo_url = "https://img.dni.ru/binaries/game/16/list.jpg"
 
     try:
@@ -240,7 +236,7 @@ async def blackjack_command(message: Message, bot: Bot):
                 f"💰 <b>Минимальный баланс:</b> {MIN_BALANCE} монет\n\n"
                 f"📋 <b>Правила:</b>\n"
                 f"• Стандартная колода карт (52 карты)\n"
-                f"• Цель: набрать 21 очко или близко к этому путем нажатия на Взять карту. "
+                f"• Цель: набрать 21 очко или близко к этому путем нажатием на Взять карту. "
                 f"Если вы превысите 21 очко - вы проиграете (перебор)\n"
                 f"• Туз = 1 или 11, фигуры = 10\n"
                 f"• Больше 21 = проигрыш\n\n"
@@ -283,22 +279,18 @@ async def blackjack_add_time_command(message: Message, bot: Bot):
     
     active_games[game_key]["end_time"] += 30
     
-    try:
-        await message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete admin command: {e}")
+    await safe_delete_message(bot, chat_id, message.message_id)
     
-    notification = await message.answer(
+    notification = await safe_send_message(
+        bot, chat_id,
         f"⏰ <b>+30 секунд добавлено!</b>\n\n"
         f"👤 Администратор {message.from_user.first_name} добавил время",
         parse_mode="HTML"
     )
     
-    await asyncio.sleep(3)
-    try:
-        await notification.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete notification: {e}")
+    if notification:
+        await asyncio.sleep(3)
+        await safe_delete_message(bot, chat_id, notification.message_id)
     
     logger.info(f"30 seconds added to blackjack recruitment by {message.from_user.first_name} ({message.from_user.id}) in chat {chat_id}")
 
@@ -335,10 +327,7 @@ async def blackjack_start_early_command(message: Message, bot: Bot):
         )
         return
     
-    try:
-        await message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete admin command: {e}")
+    await safe_delete_message(bot, chat_id, message.message_id)
     
     message_id = game_data.get("message_id")
     if message_id:
@@ -353,13 +342,19 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     if not callback.data or not callback.from_user or not callback.message:
         return
     
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass
     
     try:
         _, chat_id_str = callback.data.split(":")
         chat_id = int(chat_id_str)
     except (ValueError, IndexError):
-        await callback.answer("❌ Ошибка обработки команды.", show_alert=True)
+        try:
+            await callback.answer("❌ Ошибка обработки команды.", show_alert=True)
+        except Exception:
+            pass
         return
     
     user = callback.from_user
@@ -368,28 +363,40 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     game_key = get_game_key(chat_id)
     
     if game_key not in active_games:
-        await callback.answer("⏰ Набор игроков уже завершен!", show_alert=True)
+        try:
+            await callback.answer("⏰ Набор игроков уже завершен!", show_alert=True)
+        except Exception:
+            pass
         return
     
     game_data = active_games[game_key]
     players = game_data.get("players", [])
     
     if len(players) >= MAX_PLAYERS:
-        await callback.answer("🚫 Игра уже заполнена!", show_alert=True)
+        try:
+            await callback.answer("🚫 Игра уже заполнена!", show_alert=True)
+        except Exception:
+            pass
         return
     
     if any(p["user_id"] == user_id for p in players):
-        await callback.answer("ℹ️ Вы уже в игре!", show_alert=True)
+        try:
+            await callback.answer("ℹ️ Вы уже в игре!", show_alert=True)
+        except Exception:
+            pass
         return
     
     balance = economy_manager.get_balance(user_id)
     if balance < MIN_BALANCE:
-        await callback.answer(
-            f"🚫 Недостаточно монет!\n\n"
-            f"💰 Ваш баланс: {balance} монет\n"
-            f"💵 Нужно: {MIN_BALANCE} монет",
-            show_alert=True
-        )
+        try:
+            await callback.answer(
+                f"🚫 Недостаточно монет!\n\n"
+                f"💰 Ваш баланс: {balance} монет\n"
+                f"💵 Нужно: {MIN_BALANCE} монет",
+                show_alert=True
+            )
+        except Exception:
+            pass
         return
     
     players.append({
@@ -400,7 +407,10 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     active_games[game_key]["players"] = players
     logger.info(f"Player {user.first_name} ({user_id}) joined blackjack in chat {chat_id}")
     
-    await callback.answer(f"✅ Вы присоединились к игре! ({len(players)}/{MAX_PLAYERS})", show_alert=True)
+    try:
+        await callback.answer(f"✅ Вы присоединились к игре! ({len(players)}/{MAX_PLAYERS})", show_alert=True)
+    except Exception:
+        pass
     
     message_id = game_data.get("message_id")
     if message_id:
@@ -417,18 +427,5 @@ async def blackjack_reset_command(message: Message, bot: Bot):
     chat_id = message.chat.id
     game_key = get_game_key(chat_id)
     
-    active_games.pop(game_key, None)
-    
-    if game_state_manager.game_exists(game_key):
-        game_data = game_state_manager.get_game(game_key)
-        if game_data:
-            bets = game_data.get("bets", {})
-            for player in game_data.get("players", []):
-                uid = player.get("user_id") if isinstance(player, dict) else player
-                bet_amount = bets.get(str(uid), 0)
-                if bet_amount > 0:
-                    economy_manager.add_money(uid, bet_amount)
-        game_state_manager.delete_game(game_key)
-        
+    await abort_game_and_refund(bot, chat_id, game_key, game_state_manager, "Принудительный сброс администратором")
     await message.reply("✅ Сессия игры Блекджек в этом чате успешно сброшена! Все заблокированные ставки возвращены.")
-

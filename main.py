@@ -86,19 +86,19 @@ async def game_lifetime_monitor(bot: Bot):
                     continue
                 
                 started_at = game_data.get("started_at", 0)
-                # Лимит - 1 час (3600 секунд)
-                if started_at > 0 and (time.time() - started_at > 3600):
+                # Лимит - 5 минут (300 секунд)
+                if started_at > 0 and (time.time() - started_at > 300):
                     chat_id = game_data.get("chat_id")
                     bets = game_data.get("bets", {})
                     
                     # 1. Возвращаем все ставки игрокам
                     refunded_players = []
                     for player in game_data.get("players", []):
-                        user_id = player["user_id"]
-                        bet_amount = bets.get(str(user_id), 0)
+                        user_id = player["user_id"] if isinstance(player, dict) else player
+                        bet_amount = bets.get(user_id, bets.get(str(user_id), 0))
                         if bet_amount > 0:
                             em.add_money(user_id, bet_amount)
-                            username = player.get("username") or player.get("first_name") or f"ID{user_id}"
+                            username = player.get("username") or player.get("first_name") or f"ID{user_id}" if isinstance(player, dict) else f"ID{user_id}"
                             refunded_players.append(f"• 👤 <b>{username}</b>: {bet_amount} монет")
                     
                     # 2. Отправляем уведомление в чат
@@ -107,7 +107,7 @@ async def game_lifetime_monitor(bot: Bot):
                         msg_text = (
                             f"⚠️ <b>ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ ИГРЫ</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"Сессия игры Блекджек превысила лимит времени (1 час) и была остановлена.\n\n"
+                            f"Сессия игры Блекджек превысила лимит времени (5 минут) и была остановлена.\n\n"
                             f"💰 <b>Возвращенные ставки:</b>\n{refund_list}"
                         )
                         try:
@@ -129,8 +129,8 @@ async def game_lifetime_monitor(bot: Bot):
         except Exception as e:
             logging.error(f"Error in game_lifetime_monitor: {e}", exc_info=True)
             
-        # Проверка каждые 5 минут
-        await asyncio.sleep(300)
+        # Проверка каждые 30 секунд
+        await asyncio.sleep(30)
 
 
 async def main():
@@ -153,19 +153,28 @@ async def main():
                     user_id = player.get("user_id") if isinstance(player, dict) else player
                     if not user_id:
                         continue
-                    bet_amount = bets.get(str(user_id), 0)
+                    bet_amount = bets.get(user_id, bets.get(str(user_id), 0))
                     if bet_amount > 0:
                         em.add_money(user_id, bet_amount)
                         uname = player.get("first_name") or f"ID{user_id}" if isinstance(player, dict) else f"ID{user_id}"
-                        refunds.append(f"• 👤 {uname}: {bet_amount} монет")
+                        refunds.append(f"• 👤 <b>{uname}</b>: {bet_amount} монет")
                 
-                if chat_id and refunds:
-                    refund_msg = (
-                        f"⚠️ <b>ПЕРЕЗАПУСК БОТА</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"Активная сессия игры была приостановлена из-за перезапуска бота.\n\n"
-                        f"💰 <b>Все сделанные ставки возвращены:</b>\n" + "\n".join(refunds)
-                    )
+                if chat_id:
+                    if refunds:
+                        refund_msg = (
+                            f"⚠️ <b>ПЕРЕЗАПУСК БОТА / ОБНОВЛЕНИЕ</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"Предыдущая сессия игры в Блекджек была остановлена из-за обновления бота.\n\n"
+                            f"💰 <b>Все сделанные ставки успешно возвращены:</b>\n" + "\n".join(refunds) + "\n\n"
+                            f"💡 <i>Вы можете запустить новую игру через команду /blackjack</i>"
+                        )
+                    else:
+                        refund_msg = (
+                            f"⚠️ <b>ПЕРЕЗАПУСК БОТА / ОБНОВЛЕНИЕ</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"Предыдущий набор на игру в Блекджек был сброшен из-за обновления бота.\n\n"
+                            f"💡 <i>Вы можете начать новую игру через команду /blackjack</i>"
+                        )
                     try:
                         await bot.send_message(chat_id=chat_id, text=refund_msg, parse_mode="HTML")
                     except Exception as e:

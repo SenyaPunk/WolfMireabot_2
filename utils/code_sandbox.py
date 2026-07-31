@@ -1,11 +1,13 @@
 """
-Безопасная песочница для AST-проверки и выполнения кода решений задач в /freelance
+Безопасная песочница для AST-проверки, анти-чита, анти-ИИ и выполнения кода решений задач в /freelance
 """
 import ast
 import math
 import logging
 import asyncio
 from typing import Dict, Any, Tuple, Optional
+
+from utils.ai_detector import analyze_ai_generated_code
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ SAFE_BUILTINS = {
     "min": min,
     "next": next,
     "pow": pow,
-    "print": lambda *args, **kwargs: None,  # Безопасный заглушечный print
+    "print": lambda *args, **kwargs: None,
     "range": range,
     "repr": repr,
     "reversed": reversed,
@@ -74,10 +76,10 @@ def validate_code_safety(code: str) -> Tuple[bool, str]:
 
     for node in ast.walk(tree):
         if isinstance(node, FORBIDDEN_AST_NODES):
-            return False, f"Использование импортов (`import`) запрещено!"
+            return False, "Использование импортов (`import`) запрещено!"
 
         if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            return False, f"Использование запрещенного имени/функции `{node.id}`!"
+            return False, f"Использование запрещенного имени `{node.id}`!"
 
         if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_NAMES:
             return False, f"Использование запрещенного атрибута `{node.attr}`!"
@@ -89,8 +91,27 @@ def validate_code_safety(code: str) -> Tuple[bool, str]:
     return True, ""
 
 
-async def run_code_tests(code: str, entry_point: str, test_cases: list[dict], timeout_sec: float = 2.0) -> Dict[str, Any]:
-    """Выполняет решение в изолированной среде и сравнивает результаты с тест-кейсами."""
+def check_anti_hardcode(code: str, entry_point: str) -> Tuple[bool, str]:
+    """Проверяет AST кода на попытки вернуть захардкоженные ответ или заглушку."""
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return True, ""
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == entry_point:
+            if len(node.body) == 1:
+                stmt = node.body[0]
+                if isinstance(stmt, ast.Return):
+                    val = stmt.value
+                    if isinstance(val, (ast.Constant, ast.List, ast.Dict, ast.Tuple, ast.Set)):
+                        return False, "Обнаружена попытка хардкода константы! Функция должна содержать алгоритмическую логику."
+    return True, ""
+
+
+async def run_code_tests(code: str, entry_point: str, test_cases: list[dict], elapsed_time_sec: float = 999.0, timeout_sec: float = 2.5) -> Dict[str, Any]:
+    """Выполняет решение в изолированной среде с проверкой безопасности, анти-хардкода и анти-ИИ."""
+    # 1. Проверка безопасности AST
     is_safe, error_msg = validate_code_safety(code)
     if not is_safe:
         return {
@@ -101,7 +122,33 @@ async def run_code_tests(code: str, entry_point: str, test_cases: list[dict], ti
             "details": f"❌ {error_msg}"
         }
 
-    # Изолированное окружение
+    # 2. Проверка анти-хардкода
+    is_valid_logic, hardcode_msg = check_anti_hardcode(code, entry_point)
+    if not is_valid_logic:
+        return {
+            "success": False,
+            "passed": 0,
+            "total": len(test_cases),
+            "error": f"🛡️ <b>Анти-чит отклонил решение:</b> {hardcode_msg}",
+            "details": f"❌ {hardcode_msg}"
+        }
+
+    # 3. Проверка анти-ИИ детектора (ChatGPT, Gemini, Claude, DeepSeek)
+    is_ai, ai_score, ai_reasons = analyze_ai_generated_code(code, elapsed_time_sec)
+    if is_ai:
+        return {
+            "success": False,
+            "passed": 0,
+            "total": len(test_cases),
+            "error": f"🤖 <b>Анти-ИИ Детектор:</b> Зафиксирован код от нейросети (вероятность {ai_score}%)!",
+            "details": (
+                f"🤖 <b>Решение заблокировано Анти-ИИ системой!</b>\n\n"
+                f"<i>Причины детекции ИИ ({ai_score}%): {ai_reasons}.</i>\n\n"
+                f"💡 <b>Пожалуйста, напишите код самостоятельно!</b> Уберите шаблонные комментарии ИИ, "
+                f"выкладку сложности, формальные docstrings и избыточные type-hints."
+            )
+        }
+
     safe_globals = {
         "__builtins__": SAFE_BUILTINS,
         "math": math
@@ -137,7 +184,6 @@ async def run_code_tests(code: str, entry_point: str, test_cases: list[dict], ti
         description = test.get("description", f"Тест #{idx}")
 
         try:
-            # Запускаем функцию с тайм-аутом
             result = await asyncio.wait_for(
                 asyncio.to_thread(target_func, *args),
                 timeout=timeout_sec

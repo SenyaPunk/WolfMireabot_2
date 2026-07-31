@@ -2,17 +2,16 @@
 import asyncio
 import logging
 from aiogram import Bot
-from aiogram.exceptions import TelegramRetryAfter
 
 from utils.economy_manager import EconomyManager
 from utils.slave_manager import SlaveManager
 from utils.game_state_manager import GameStateManager
 from utils.user_link import get_user_link
+from .helpers import safe_send_message, safe_delete_message
 
 logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 slave_manager = SlaveManager()
-
 
 
 def calculate_hand_value(cards: list) -> int:
@@ -56,7 +55,6 @@ async def show_results(bot: Bot, chat_id: int, game_key: str, game_state_manager
     logger.info(f"Starting results calculation for game {game_key}")
     
     game_data = game_state_manager.get_game(game_key)
-    
     if not game_data:
         logger.error(f"Game not found: {game_key}")
         return
@@ -83,7 +81,7 @@ async def show_results(bot: Bot, chat_id: int, game_key: str, game_state_manager
             hand = player_hands.get(user_id_str, [])
             hand_value = calculate_hand_value(hand)
             hand_str = format_hand(hand)
-            bet_amount = bets.get(user_id_str, 0)
+            bet_amount = bets.get(user_id, bets.get(user_id_str, 0))
             
             if bet_amount == 0:
                 continue
@@ -162,46 +160,14 @@ async def show_results(bot: Bot, chat_id: int, game_key: str, game_state_manager
             f"<i>Игра завершена! Спасибо за участие!</i>"
         )
         
-        max_retries = 3
-        retry_count = 0
-        message_sent = False
-        
-        while retry_count < max_retries and not message_sent:
-            try:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=final_text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
-                message_sent = True
-                logger.info(f"Results message sent successfully for game {game_key}")
-            except TelegramRetryAfter as e:
-                retry_count += 1
-                retry_after = e.retry_after
-                logger.warning(f"Flood control hit, retrying after {retry_after} seconds (attempt {retry_count}/{max_retries})")
-                if retry_count < max_retries:
-                    await asyncio.sleep(retry_after + 1)  # Wait a bit longer than required
-                else:
-                    logger.error(f"Failed to send results message after {max_retries} attempts")
-            except Exception as e:
-                logger.error(f"Error sending results message: {e}", exc_info=True)
-                break
-    
+        await safe_send_message(bot, chat_id=chat_id, text=final_text, parse_mode="HTML")
+        logger.info(f"Results message sent for game {game_key}")
+    except Exception as e:
+        logger.error(f"Error in show_results for game {game_key}: {e}", exc_info=True)
     finally:
         try:
             if game_state_manager.game_exists(game_key):
-                logger.info(f"Game {game_key} exists, deleting...")
                 game_state_manager.delete_game(game_key)
-                logger.info(f"Game {game_key} deleted successfully")
-                
-                if game_state_manager.game_exists(game_key):
-                    logger.error(f"Game {game_key} still exists after deletion!")
-                else:
-                    logger.info(f"Confirmed: Game {game_key} no longer exists")
-            else:
-                logger.warning(f"Game {game_key} does not exist, nothing to delete")
+                logger.info(f"Confirmed: Game {game_key} deleted in results cleanup")
         except Exception as e:
-            logger.error(f"Error deleting game {game_key}: {e}", exc_info=True)
-        
-        logger.info(f"Results shown and game {game_key} cleanup completed")
+            logger.error(f"Error deleting game {game_key} in finally: {e}", exc_info=True)

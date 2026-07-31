@@ -1,5 +1,4 @@
-**/__pycache__/
-
+/__pycache__/
 __pycache__/
 *.py[codz]
 *$py.class
@@ -23,7 +22,6 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-
 .env
 .venv/
 vps_*.txt
@@ -37,3 +35,6 @@ tasks.txt
 users.json 
 economy.json 
 data/
+.agents/
+.gemini/
+scratch/

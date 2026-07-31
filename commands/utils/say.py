@@ -1,5 +1,6 @@
 import os
 import logging
+import datetime
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -34,6 +35,18 @@ async def say(message: Message):
                 chat_id=chat_id,
                 text=text
             )
+
+            user_info = f"ID: {message.from_user.id}, Username: @{message.from_user.username or 'None'}, Name: {message.from_user.full_name}"
+            logger.info(f"ANON SAY from {user_info}: {text}")
+
+            try:
+                os.makedirs("data", exist_ok=True)
+                with open("data/anon_messages.log", "a", encoding="utf-8") as f:
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(f"[{now}] [SAY] {user_info} -> {text}\n")
+            except Exception as log_err:
+                logger.error(f"Не удалось записать логи анонимок: {log_err}")
+
             await message.answer("✅ Сообщение успешно отправлено в целевой чат!")
         except Exception as e:
             logger.error(f"Ошибка при отправке сообщения в чат {target_chat_id}: {e}")

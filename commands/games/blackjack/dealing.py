@@ -3,22 +3,24 @@ import asyncio
 import random
 import logging
 from aiogram import Bot
-from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
 from utils.economy_manager import EconomyManager
-
 from utils.game_state_manager import GameStateManager
 from utils.user_storage import UserStorage
+from .helpers import (
+    safe_edit_message_text,
+    safe_send_message,
+    safe_delete_message,
+    abort_game_and_refund
+)
 
 logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 user_storage = UserStorage()
 
-# Карточные масти и значения
 SUITS = ['♠️', '♥️', '♦️', '♣️']
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-
-CARD_BACK = '🂠'  # Закрытая карта
+CARD_BACK = '🂠'
 
 
 def get_user_mention(user_id: int) -> str:
@@ -104,203 +106,182 @@ async def start_dealing_stage(bot: Bot, chat_id: int, game_key: str, game_state_
         logger.error(f"Game not found: {game_key}")
         return
     
-    players = game_data.get("players", [])
-    bets = game_data.get("bets", {})
-    
-    logger.info(f"Deducting bets from player balances")
-    for player in players:
-        user_id = player["user_id"]
-        bet_amount = bets.get(str(user_id), 0)
-        if bet_amount > 0:
-            economy_manager.remove_money(user_id, bet_amount)
-            logger.info(f"Deducted {bet_amount} from user {user_id}")
-    
-    deck = create_deck()
-    
-    player_hands = {str(player["user_id"]): [] for player in players}
-    dealer_hand = []
-    
-    game_data["stage"] = "dealing"
-    game_data["deck"] = deck
-    game_data["player_hands"] = player_hands
-    game_data["dealer_hand"] = dealer_hand
-    game_state_manager.update_game(game_key, game_data)
-    
-    # 1. Начальное состояние - тасование колоды
-    player_names = []
-    for p in players:
-        username = p.get('username') or p.get('first_name') or f"ID{p['user_id']}"
-        player_names.append(f"• 👤 <b>{username}</b>: <i>ожидает карту...</i>")
-    players_waiting_text = "\n".join(player_names)
-    
-    initial_text = (
-        f"🎰 <b>БЛЕКДЖЕК — РАЗДАЧА КАРТ</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"• 🏦 <b>Дилер:</b> <i>ожидает...</i>\n\n"
-        f"👥 <b>Игроки:</b>\n"
-        f"{players_waiting_text}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"⚙️ <b>Статус:</b> <i>Дилер тасует колоду... 🃏</i>"
-    )
-    
-    dealing_msg = await bot.send_message(
-        chat_id=chat_id,
-        text=initial_text,
-        parse_mode="HTML"
-    )
-    
-    dealing_message_id = dealing_msg.message_id
-    game_data["dealing_message_id"] = dealing_message_id
-    game_state_manager.update_game(game_key, game_data)
-    
-    await asyncio.sleep(1.8)
-    
-    num_players = len(players)
-    
-    # Режим раздачи:
-    # Если игроков <= 2: последовательная пошаговая раздача (максимальный азарт).
-    # Если игроков >= 3: групповая по раундам (защита от Flood limits).
-    if num_players <= 2:
-        logger.info("Using sequential (card-by-card) dealing mode")
+    try:
+        players = game_data.get("players", [])
+        bets = game_data.get("bets", {})
         
-        # КРУГ 1
-        # Раздаем первую карту каждому игроку по очереди
+        logger.info("Deducting bets from player balances")
         for player in players:
-            user_id = str(player["user_id"])
-            
-            # Показываем анимацию сдачи этому игроку
-            await update_dealing_message(
-                bot, chat_id, dealing_message_id, game_data,
-                status_text="<i>Сдача первой карты игрокам...</i>",
-                current_recipient=user_id
-            )
-            await asyncio.sleep(1.8)
-            
-            card = pop_card_with_boost(deck, int(user_id))
-            player_hands[user_id].append(card)
-            game_data["deck"] = deck
-            game_data["player_hands"] = player_hands
-            game_state_manager.update_game(game_key, game_data)
-            
-        # Раздаем первую карту дилеру
-        await update_dealing_message(
-            bot, chat_id, dealing_message_id, game_data,
-            status_text="<i>Сдача первой карты дилеру...</i>",
-            current_recipient="dealer"
-        )
-        await asyncio.sleep(1.8)
+            user_id = player["user_id"]
+            bet_amount = bets.get(user_id, bets.get(str(user_id), 0))
+            if bet_amount > 0:
+                economy_manager.remove_money(user_id, bet_amount)
+                logger.info(f"Deducted {bet_amount} from user {user_id}")
         
-        card = deck.pop()
-        dealer_hand.append(card)
+        deck = create_deck()
+        player_hands = {str(player["user_id"]): [] for player in players}
+        dealer_hand = []
+        
+        game_data["stage"] = "dealing"
         game_data["deck"] = deck
+        game_data["player_hands"] = player_hands
         game_data["dealer_hand"] = dealer_hand
         game_state_manager.update_game(game_key, game_data)
         
-        # КРУГ 2
-        # Раздаем вторую карту каждому игроку по очереди
-        for player in players:
-            user_id = str(player["user_id"])
+        player_names = []
+        for p in players:
+            username = p.get('username') or p.get('first_name') or f"ID{p['user_id']}"
+            player_names.append(f"• 👤 <b>{username}</b>: <i>ожидает карту...</i>")
+        players_waiting_text = "\n".join(player_names)
+        
+        initial_text = (
+            f"🎰 <b>БЛЕКДЖЕК — РАЗДАЧА КАРТ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"• 🏦 <b>Дилер:</b> <i>ожидает...</i>\n\n"
+            f"👥 <b>Игроки:</b>\n"
+            f"{players_waiting_text}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"⚙️ <b>Статус:</b> <i>Дилер тасует колоду... 🃏</i>"
+        )
+        
+        dealing_msg = await safe_send_message(bot, chat_id=chat_id, text=initial_text, parse_mode="HTML")
+        if not dealing_msg:
+            raise RuntimeError("Failed to send initial dealing message")
+        
+        dealing_message_id = dealing_msg.message_id
+        game_data["dealing_message_id"] = dealing_message_id
+        game_state_manager.update_game(game_key, game_data)
+        
+        await asyncio.sleep(1.8)
+        num_players = len(players)
+        
+        if num_players <= 2:
+            logger.info("Using sequential (card-by-card) dealing mode")
             
+            # КРУГ 1
+            for player in players:
+                user_id = str(player["user_id"])
+                await update_dealing_message(
+                    bot, chat_id, dealing_message_id, game_data,
+                    status_text="<i>Сдача первой карты игрокам...</i>",
+                    current_recipient=user_id
+                )
+                await asyncio.sleep(1.8)
+                
+                card = pop_card_with_boost(deck, int(user_id))
+                player_hands[user_id].append(card)
+                game_data["deck"] = deck
+                game_data["player_hands"] = player_hands
+                game_state_manager.update_game(game_key, game_data)
+                
             await update_dealing_message(
                 bot, chat_id, dealing_message_id, game_data,
-                status_text="<i>Сдача второй карты игрокам...</i>",
-                current_recipient=user_id
+                status_text="<i>Сдача первой карты дилеру...</i>",
+                current_recipient="dealer"
             )
             await asyncio.sleep(1.8)
             
-            card = pop_card_with_boost(deck, int(user_id))
-            player_hands[user_id].append(card)
+            card = deck.pop()
+            dealer_hand.append(card)
+            game_data["deck"] = deck
+            game_data["dealer_hand"] = dealer_hand
+            game_state_manager.update_game(game_key, game_data)
+            
+            # КРУГ 2
+            for player in players:
+                user_id = str(player["user_id"])
+                await update_dealing_message(
+                    bot, chat_id, dealing_message_id, game_data,
+                    status_text="<i>Сдача второй карты игрокам...</i>",
+                    current_recipient=user_id
+                )
+                await asyncio.sleep(1.8)
+                
+                card = pop_card_with_boost(deck, int(user_id))
+                player_hands[user_id].append(card)
+                game_data["deck"] = deck
+                game_data["player_hands"] = player_hands
+                game_state_manager.update_game(game_key, game_data)
+                
+            await update_dealing_message(
+                bot, chat_id, dealing_message_id, game_data,
+                status_text="<i>Сдача второй карты дилеру...</i>",
+                current_recipient="dealer",
+                hide_dealer_second=True
+            )
+            await asyncio.sleep(1.8)
+            
+            card = deck.pop()
+            dealer_hand.append(card)
+            game_data["deck"] = deck
+            game_data["dealer_hand"] = dealer_hand
+            game_state_manager.update_game(game_key, game_data)
+            
+        else:
+            logger.info("Using round-based dealing mode")
+            for player in players:
+                user_id = str(player["user_id"])
+                card = pop_card_with_boost(deck, int(user_id))
+                player_hands[user_id].append(card)
+                
             game_data["deck"] = deck
             game_data["player_hands"] = player_hands
             game_state_manager.update_game(game_key, game_data)
             
-        # Раздаем вторую карту дилеру (в закрытую)
+            await update_dealing_message(
+                bot, chat_id, dealing_message_id, game_data,
+                status_text="<i>Сдача первой карты игрокам...</i>"
+            )
+            await asyncio.sleep(2.0)
+            
+            card = deck.pop()
+            dealer_hand.append(card)
+            game_data["deck"] = deck
+            game_data["dealer_hand"] = dealer_hand
+            game_state_manager.update_game(game_key, game_data)
+            
+            await update_dealing_message(
+                bot, chat_id, dealing_message_id, game_data,
+                status_text="<i>Сдача первой карты дилеру...</i>"
+            )
+            await asyncio.sleep(2.0)
+            
+            for player in players:
+                user_id = str(player["user_id"])
+                card = pop_card_with_boost(deck, int(user_id))
+                player_hands[user_id].append(card)
+                
+            game_data["deck"] = deck
+            game_data["player_hands"] = player_hands
+            game_state_manager.update_game(game_key, game_data)
+            
+            await update_dealing_message(
+                bot, chat_id, dealing_message_id, game_data,
+                status_text="<i>Сдача второй карты игрокам...</i>"
+            )
+            await asyncio.sleep(2.0)
+            
+            card = deck.pop()
+            dealer_hand.append(card)
+            game_data["deck"] = deck
+            game_data["dealer_hand"] = dealer_hand
+            game_state_manager.update_game(game_key, game_data)
+            
         await update_dealing_message(
             bot, chat_id, dealing_message_id, game_data,
-            status_text="<i>Сдача второй карты дилеру...</i>",
-            current_recipient="dealer",
+            status_text="<i>Раздача завершена. Ожидание хода игроков...</i>",
             hide_dealer_second=True
         )
-        await asyncio.sleep(1.8)
+        await asyncio.sleep(2.2)
+        await safe_delete_message(bot, chat_id, dealing_message_id)
         
-        card = deck.pop()
-        dealer_hand.append(card)
-        game_data["deck"] = deck
-        game_data["dealer_hand"] = dealer_hand
-        game_state_manager.update_game(game_key, game_data)
-        
-    else:
-        logger.info("Using round-based dealing mode")
-        
-        # --- КРУГ 1: Раздаем первую карту всем игрокам ---
-        for player in players:
-            user_id = str(player["user_id"])
-            card = pop_card_with_boost(deck, int(user_id))
-            player_hands[user_id].append(card)
-            
-        game_data["deck"] = deck
-        game_data["player_hands"] = player_hands
-        game_state_manager.update_game(game_key, game_data)
-        
-        await update_dealing_message(
-            bot, chat_id, dealing_message_id, game_data,
-            status_text="<i>Сдача первой карты игрокам...</i>"
-        )
-        await asyncio.sleep(2.0)
-        
-        # --- Раздаем первую карту дилеру ---
-        card = deck.pop()
-        dealer_hand.append(card)
-        game_data["deck"] = deck
-        game_data["dealer_hand"] = dealer_hand
-        game_state_manager.update_game(game_key, game_data)
-        
-        await update_dealing_message(
-            bot, chat_id, dealing_message_id, game_data,
-            status_text="<i>Сдача первой карты дилеру...</i>"
-        )
-        await asyncio.sleep(2.0)
-        
-        # --- КРУГ 2: Раздаем вторую карту всем игрокам ---
-        for player in players:
-            user_id = str(player["user_id"])
-            card = pop_card_with_boost(deck, int(user_id))
-            player_hands[user_id].append(card)
-            
-        game_data["deck"] = deck
-        game_data["player_hands"] = player_hands
-        game_state_manager.update_game(game_key, game_data)
-        
-        await update_dealing_message(
-            bot, chat_id, dealing_message_id, game_data,
-            status_text="<i>Сдача второй карты игрокам...</i>"
-        )
-        await asyncio.sleep(2.0)
-        
-        # --- Раздаем вторую карту дилеру (в закрытую) ---
-        card = deck.pop()
-        dealer_hand.append(card)
-        game_data["deck"] = deck
-        game_data["dealer_hand"] = dealer_hand
-        game_state_manager.update_game(game_key, game_data)
-        
-    # Завершение раздачи
-    await update_dealing_message(
-        bot, chat_id, dealing_message_id, game_data,
-        status_text="<i>Раздача завершена. Ожидание хода игроков...</i>",
-        hide_dealer_second=True
-    )
-    await asyncio.sleep(2.2)
-    
-    try:
-        await bot.delete_message(chat_id=chat_id, message_id=dealing_message_id)
+        logger.info(f"Dealing stage finished for game {game_key}")
+        from .playing import start_playing_stage
+        await start_playing_stage(bot, chat_id, game_key, game_state_manager)
+
     except Exception as e:
-        logger.error(f"Error deleting dealing message: {e}")
-    
-    logger.info(f"Dealing stage finished for game {game_key}")
-    
-    from .playing import start_playing_stage
-    await start_playing_stage(bot, chat_id, game_key, game_state_manager)
+        logger.error(f"Error during dealing stage in game {game_key}: {e}", exc_info=True)
+        await abort_game_and_refund(bot, chat_id, game_key, game_state_manager, f"Ошибка во время раздачи карт: {e}")
 
 
 async def update_dealing_message(
@@ -321,23 +302,17 @@ async def update_dealing_message(
         user_id = str(player["user_id"])
         username = player.get("username", f"ID{user_id}")
         hand = player_hands.get(user_id, [])
-        
-        # Указатель сдачи карты
         indicator = "👉 " if current_recipient == user_id else "• "
         
         if hand:
             hand_str = format_hand(hand)
             hand_value = calculate_hand_value(hand)
-            
             bj_mark = " 👑 <b>[БЛЕКДЖЕК]</b>" if hand_value == 21 and len(hand) == 2 else ""
-            
             players_text.append(f"{indicator}👤 <b>{username}</b>: {hand_str} (очки: <code>{hand_value}</code>){bj_mark}")
         else:
             players_text.append(f"{indicator}👤 <b>{username}</b>: <i>ожидает карту...</i>")
     
     players_display = "\n".join(players_text)
-    
-    # Дилер
     dealer_indicator = "👉 " if current_recipient == "dealer" else "• "
     if dealer_hand:
         dealer_str = format_hand(dealer_hand, hide_second=hide_dealer_second)
@@ -360,27 +335,4 @@ async def update_dealing_message(
         f"⚙️ <b>Статус:</b> {status_text}"
     )
     
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-    except TelegramRetryAfter as e:
-        logger.warning(f"TelegramRetryAfter in update_dealing_message: waiting {e.retry_after}s")
-        await asyncio.sleep(e.retry_after)
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-        except Exception:
-            pass
-    except Exception as e:
-        logger.error(f"Error updating dealing message: {e}")
-
+    await safe_edit_message_text(bot, chat_id, message_id, text, parse_mode="HTML")
