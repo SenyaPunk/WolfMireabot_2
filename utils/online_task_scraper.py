@@ -1,6 +1,6 @@
 """
 Настоящий живой веб-парсер задач с LeetCode API (3000+ задач) и Codeforces API (11000+ задач).
-Парсит НАСТОЯЩИЙ ТЕКСТ ЗАДАЧИ, теги, стартовый код функций и генерирует уникальные 6-10 динамических стресс-тестов с оракулами.
+Парсит НАСТОЯЩИЙ ТЕКСТ ЗАДАЧИ, теги, вычленяет чистые Python-функции и генерирует синхронные динамо-тесты.
 """
 import os
 import json
@@ -61,6 +61,21 @@ COMPANY_BRANDING = {
         ("Алгоритмическая Арена", "Баттл по алгоритмам и структурам данных")
     ]
 }
+
+
+def extract_leetcode_function(py_snippet: str) -> Tuple[Optional[str], Optional[str]]:
+    """Извлекает точку входа (имя функции) и чистый сигнатурный код из шаблона LeetCode."""
+    if not py_snippet:
+        return None, None
+    m = re.search(r'def\s+([a-zA-Z0-9_]+)\s*\(\s*self\s*,?\s*(.*?)\)\s*(?:->\s*([^:]+))?:', py_snippet, re.DOTALL)
+    if m:
+        fn = m.group(1)
+        args = m.group(2).strip()
+        ret = m.group(3).strip() if m.group(3) else ""
+        ret_str = f" -> {ret}" if ret else ""
+        clean_code = f"def {fn}({args}){ret_str}:\n    # Напишите решение здесь\n    pass"
+        return fn, clean_code
+    return None, None
 
 
 class RealOnlineTaskParser:
@@ -152,7 +167,7 @@ class RealOnlineTaskParser:
                     "difficulty": q.get('difficulty', 'MEDIUM'),
                     "tags": [t['name'] for t in (q.get('topicTags') or []) if isinstance(t, dict)],
                     "raw_description": clean_desc[:800],
-                    "starter_code": py_code
+                    "raw_py_code": py_code
                 }
                 self.leetcode_cache[slug] = parsed_data
                 self._save_cache()
@@ -199,7 +214,7 @@ def mark_user_task(user_id: int, task_id: str):
 def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
     """
     Выполняет НАСТОЯЩИЙ живой парсинг полных задач с LeetCode GraphQL API,
-    адаптирует оригинальный текст задачи под компанию, и генерирует уникальные динамические тесты.
+    гармонично сопоставляет сигнатуры функций с ТЗ и генерирует уникальные тесты.
     """
     used_history = set(get_user_history(user_id))
 
@@ -219,26 +234,32 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
 
     from utils.it_tasks_db import IT_TASKS_DB, generate_task_test_cases
     fallback_template = random.choice([t for t in IT_TASKS_DB if category == "Any" or t.get("category") == category] or IT_TASKS_DB)
-    base_id = fallback_template["id"]
-    dynamic_tests = generate_task_test_cases(base_id)
+
+    # Пробуем извлечь чистую сигнатуру функции прямо из распарсенной задачи LeetCode
+    extracted_fn, extracted_code = extract_leetcode_function(parsed_problem.get('raw_py_code', '') if parsed_problem else '')
+
+    if extracted_fn and extracted_code:
+        entry_point = extracted_fn
+        starter_code = extracted_code
+        base_id = entry_point
+    else:
+        entry_point = fallback_template['entry_point']
+        starter_code = fallback_template['starter_code']
+        base_id = fallback_template['id']
+
+    dynamic_tests = generate_task_test_cases(entry_point, base_id)
 
     if parsed_problem:
         task_id = f"parsed_{parsed_problem['id']}"
         raw_title = parsed_problem['title']
         tags_str = ", ".join(parsed_problem['tags']) if parsed_problem['tags'] else "Algorithm"
         problem_desc = parsed_problem['raw_description']
-        
-        starter_code = fallback_template['starter_code']
-        entry_point = fallback_template['entry_point']
-        
         mark_user_task(user_id, parsed_problem['id'])
     else:
         task_id = f"parsed_{base_id}_{random.randint(1000, 9999)}"
         raw_title = fallback_template['title']
         tags_str = category
         problem_desc = fallback_template['description']
-        starter_code = fallback_template['starter_code']
-        entry_point = fallback_template['entry_point']
         mark_user_task(user_id, task_id)
 
     reward = 120 if category == "Алгосы" else random.randint(210, 340)
@@ -253,7 +274,7 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         "language": "Python 3.11",
         "reward": reward,
         "description": (
-            f"🌐 <b>Сживое ТЗ из парсера LeetCode / {company_name}:</b>\n"
+            f"🌐 <b>Живое ТЗ от компании / {company_name}:</b>\n"
             f"<i>{company_info[1]}</i>\n\n"
             f"📝 <b>Официальное условие с LeetCode:</b>\n{problem_desc}\n\n"
             f"💡 <b>Требование:</b> Реализуйте функцию <code>{entry_point}</code> согласно спецификации выше."

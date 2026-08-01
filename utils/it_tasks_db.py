@@ -742,11 +742,59 @@ def _gen_nginx_log_parser() -> list:
     return tests
 
 
+def _oracle_can_finish(num_courses: int, prerequisites: list) -> bool:
+    from collections import defaultdict, deque
+    adj = defaultdict(list)
+    in_degree = [0] * num_courses
+    for dest, src in prerequisites:
+        adj[src].append(dest)
+        in_degree[dest] += 1
+    queue = deque([i for i in range(num_courses) if in_degree[i] == 0])
+    visited = 0
+    while queue:
+        u = queue.popleft()
+        visited += 1
+        for v in adj[u]:
+            in_degree[v] -= 1
+            if in_degree[v] == 0:
+                queue.append(v)
+    return visited == num_courses
+
+def _gen_can_finish() -> list:
+    tests = [
+        {"input": [2, [[1, 0]]], "expected": True, "description": "Простой курс 0 -> 1"},
+        {"input": [2, [[1, 0], [0, 1]]], "expected": False, "description": "Циклическая зависимость 0 <-> 1"}
+    ]
+    for i in range(5):
+        n = random.randint(3, 8)
+        has_cycle = random.choice([True, False])
+        edges = []
+        for _ in range(n):
+            u, v = random.randint(0, n-1), random.randint(0, n-1)
+            if u != v:
+                edges.append([v, u])
+        if has_cycle and n >= 2:
+            edges.append([0, 1])
+            edges.append([1, 0])
+        expected = _oracle_can_finish(n, edges)
+        tests.append({
+            "input": [n, edges],
+            "expected": expected,
+            "description": f"Динамический граф курсов #{i+1} ({n} курсов)"
+        })
+    return tests
+
+
 def generate_task_test_cases(task_id: str, base_task_id: Optional[str] = None) -> list[dict]:
     """Генерирует от 6 до 10 уникальных динамических тест-кейсов для задачи с тройной защитой от пустых списков."""
     generator_map = {
         "algo_two_sum": _gen_two_sum,
+        "twoSum": _gen_two_sum,
         "algo_valid_parentheses": _gen_valid_parentheses,
+        "isValid": _gen_valid_parentheses,
+        "is_valid_parentheses": _gen_valid_parentheses,
+        "canFinish": _gen_can_finish,
+        "course_schedule": _gen_can_finish,
         "algo_sliding_window_max": _gen_sliding_window_max,
         "algo_merge_intervals": _gen_merge_intervals,
         "algo_compress_string": _gen_compress_string,
@@ -755,7 +803,9 @@ def generate_task_test_cases(task_id: str, base_task_id: Optional[str] = None) -
         "backend_rate_limiter": _gen_rate_limiter,
         "mobile_gps_filter": _gen_gps_filter,
         "frontend_clsx_builder": _gen_clsx_builder,
-        "devops_nginx_log_parser": _gen_nginx_log_parser
+        "clsx": _gen_clsx_builder,
+        "devops_nginx_log_parser": _gen_nginx_log_parser,
+        "parse_nginx_logs": _gen_nginx_log_parser
     }
     
     # 1. Прямой поиск по task_id
