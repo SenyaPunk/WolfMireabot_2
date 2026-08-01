@@ -1,6 +1,6 @@
 """
 Настоящий живой веб-парсер задач с LeetCode API (3000+ задач) и Codeforces API (11000+ задач).
-Выполняет автоматический перевод условий, названий и примеров на РУССКИЙ ЯЗЫК.
+Выполняет автоматический перевод условий, названий и примеров на РУССКИЙ ЯЗЫК с идеальным HTML-форматированием.
 """
 import os
 import json
@@ -94,50 +94,57 @@ COMPANY_BRANDING = {
 }
 
 
-def translate_text_to_russian(text: str) -> str:
-    """Переводит англоязычный текст ТЗ на русский язык с сохранением тегов и форматированием примеров."""
-    if not text:
+def translate_text_to_russian(raw_text: str) -> str:
+    """Переводит англоязычный текст ТЗ на русский язык с безупречным HTML-форматированием."""
+    if not raw_text:
         return ""
 
-    # Блочные замены структурных ключевых слов
-    structural_replacements = [
-        (r"\bExample (\d+):", r"🔹 <b>Пример \1:</b>"),
-        (r"\bInput:", "📥 <b>Входные данные:</b>"),
-        (r"\bOutput:", "📤 <b>Выходные данные:</b>"),
-        (r"\bExplanation:", "💡 <b>Пояснение:</b>"),
-        (r"\bConstraints:", "⚙️ <b>Ограничения:</b>"),
-        (r"\bNote:", "📌 <b>Примечание:</b>"),
-        (r"\bReturn true\b", "Верните True"),
-        (r"\bReturn false\b", "Верните False"),
-        (r"\bAn integer\b", "Целое число"),
-        (r"\bAn array of integers\b", "Массив целых чисел"),
-        (r"\bGiven an array\b", "Дан массив"),
-        (r"\bGiven a string\b", "Дана строка"),
-        (r"\bGiven two strings\b", "Даны две строки"),
-        (r"\bYou are given\b", "Вам дан"),
-        (r"\bReturn the answer\b", "Верните ответ"),
-        (r"\bReturn indices of the two numbers\b", "Верните индексы двух чисел"),
-        (r"\bReturn all the possible\b", "Верните все возможные"),
-        (r"\bThere are a total of\b", "Всего имеется")
-    ]
-
-    for pat, repl in structural_replacements:
-        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
-
-    # Запрос онлайн-переводчика для основного тела текста
+    # 1. Запрос онлайн-переводчика для основного тела текста
+    translated_body = raw_text
     try:
-        query_text = text[:450]
+        query_text = raw_text[:450]
         url = "https://api.mymemory.translated.net/get?q=" + urllib.parse.quote(query_text) + "&langpair=en|ru"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=4) as response:
             res = json.loads(response.read().decode('utf-8'))
-            translated = res.get('responseData', {}).get('translatedText')
-            if translated and len(translated) > 15 and "MYMEMORY WARNING" not in translated:
-                text = translated + "\n\n" + text[450:]
+            trans = res.get('responseData', {}).get('translatedText')
+            if trans and len(trans) > 15 and "MYMEMORY WARNING" not in trans:
+                translated_body = trans + "\n\n" + raw_text[450:]
     except Exception as e:
         logger.debug(f"Translation API fallback used: {e}")
 
-    return text
+    # 2. Очистка машинных ляпов перевода (кронштейны -> скобки)
+    cleanup_dict = [
+        (r"\bкронштейны\b", "скобки"),
+        (r"\bкронштейн\b", "скобка"),
+        (r"\bкронштейнами\b", "скобками"),
+        (r"\bкронштейнов\b", "скобок"),
+        (r"s consists of parentheses only", "строка s состоит только из скобок"),
+        (r"parentheses only", "только из скобок"),
+        (r"consists of", "состоит из")
+    ]
+    for pat, repl in cleanup_dict:
+        translated_body = re.sub(pat, repl, translated_body, flags=re.IGNORECASE)
+
+    # 3. Сначала экранируем спецсимволы (<, >, &)
+    safe_text = html.escape(translated_body)
+
+    # 4. ПОСЛЕ экранирования накладываем красивые валидные HTML теги Telegram
+    structural_replacements = [
+        (r"Example (\d+):", r"\n🔹 <b>Пример \1:</b>"),
+        (r"Input:", r"\n• <b>Входные данные:</b>"),
+        (r"Output:", r"\n• <b>Выходные данные:</b>"),
+        (r"Explanation:", r"\n💡 <b>Пояснение:</b>"),
+        (r"Constraints:", r"\n⚙️ <b>Ограничения:</b>"),
+        (r"Note:", r"\n📌 <b>Примечание:</b>"),
+        (r"Return true", "Верните True"),
+        (r"Return false", "Верните False")
+    ]
+
+    for pat, repl in structural_replacements:
+        safe_text = re.sub(pat, repl, safe_text, flags=re.IGNORECASE)
+
+    return safe_text.strip()
 
 
 def extract_leetcode_function(py_snippet: str) -> Tuple[Optional[str], Optional[str]]:
@@ -338,13 +345,12 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         task_id = f"parsed_{base_id}_{random.randint(1000, 9999)}"
         ru_title = fallback_template['title']
         tags_str = category
-        ru_problem_desc = fallback_template['description']
+        ru_problem_desc = translate_text_to_russian(fallback_template['description'])
         starter_code = fallback_template['starter_code']
         entry_point = fallback_template['entry_point']
         mark_user_task(user_id, task_id)
 
     reward = 120 if category == "Алгосы" else random.randint(210, 340)
-    safe_problem_desc = html.escape(ru_problem_desc)
 
     task_spec = {
         "id": task_id,
@@ -356,10 +362,10 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         "language": "Python 3.11",
         "reward": reward,
         "description": (
-            f"🌐 <b>Живое ТЗ от компании / {company_name}:</b>\n"
+            f"🌐 <b>Официальное ТЗ компании / {company_name}:</b>\n"
             f"<i>{company_info[1]}</i>\n\n"
-            f"📝 <b>Официальное условие задачи (русский перевод):</b>\n"
-            f"{safe_problem_desc}\n\n"
+            f"📝 <b>Условие задачи:</b>\n"
+            f"{ru_problem_desc}\n\n"
             f"💡 <b>Требование:</b> Реализуйте функцию <code>{entry_point}</code> согласно спецификации выше."
         ),
         "starter_code": starter_code,
