@@ -742,8 +742,8 @@ def _gen_nginx_log_parser() -> list:
     return tests
 
 
-def generate_task_test_cases(task_id: str) -> list[dict]:
-    """Генерирует от 6 до 10 уникальных динамических тест-кейсов для задачи."""
+def generate_task_test_cases(task_id: str, base_task_id: Optional[str] = None) -> list[dict]:
+    """Генерирует от 6 до 10 уникальных динамических тест-кейсов для задачи с тройной защитой от пустых списков."""
     generator_map = {
         "algo_two_sum": _gen_two_sum,
         "algo_valid_parentheses": _gen_valid_parentheses,
@@ -757,12 +757,28 @@ def generate_task_test_cases(task_id: str) -> list[dict]:
         "frontend_clsx_builder": _gen_clsx_builder,
         "devops_nginx_log_parser": _gen_nginx_log_parser
     }
-    gen_func = generator_map.get(task_id)
-    if gen_func:
-        return gen_func()
     
+    # 1. Прямой поиск по task_id
+    if task_id in generator_map:
+        return generator_map[task_id]()
+        
+    # 2. Поиск по base_task_id
+    if base_task_id and base_task_id in generator_map:
+        return generator_map[base_task_id]()
+
+    # 3. Поиск подстроки шаблона в task_id
+    if task_id:
+        for key, func in generator_map.items():
+            if key in task_id or key.replace("algo_", "").replace("backend_", "").replace("frontend_", "").replace("mobile_", "").replace("devops_", "") in task_id:
+                return func()
+
+    # 4. Поиск в статической БД
     task = get_task_by_id(task_id)
-    return task.get("test_cases", []) if task else []
+    if task and task.get("test_cases"):
+        return task.get("test_cases")
+
+    # 5. Гарантированный фоллбэк: никогда не возвращаем пустой список (минимум 6 тестов двух чисел)
+    return _gen_two_sum()
 
 
 def get_tasks_by_category(category: str) -> List[Dict[str, Any]]:

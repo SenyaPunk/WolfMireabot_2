@@ -242,11 +242,14 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
     # Генерируем динамическую структуру задачи с Oracles
     from utils.it_tasks_db import IT_TASKS_DB, generate_task_test_cases
     fallback_template = random.choice([t for t in IT_TASKS_DB if category == "Any" or t.get("category") == category] or IT_TASKS_DB)
+    base_id = fallback_template["id"]
+    dynamic_tests = generate_task_test_cases(base_id)
 
     reward = 120 if category == "Алгосы" else random.randint(210, 340)
 
     task_spec = {
         "id": f"parsed_{unique_id}",
+        "base_task_id": base_id,
         "company": company_name,
         "title": f"{raw_title} ({tag_str})",
         "category": category,
@@ -254,13 +257,14 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         "language": "Python 3.11",
         "reward": reward,
         "description": (
-            f"🌐 <b>Задание сживое из парсера ({source_type.upper()} #{unique_id}):</b>\n"
+            f"🌐 <b>Задание из парсера ({source_type.upper()} #{unique_id}):</b>\n"
             f"<i>{company_info[1]}</i>\n\n"
             f"{fallback_template['description']}"
         ),
         "starter_code": fallback_template["starter_code"],
         "entry_point": fallback_template["entry_point"],
-        "test_cases": fallback_template["test_cases"]
+        "test_cases": dynamic_tests,
+        "dynamic_tests": dynamic_tests
     }
 
     return task_spec

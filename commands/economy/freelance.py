@@ -203,7 +203,7 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
     task = parse_and_adapt_online_task(category, user_id)
 
     # Генерируем 6-10 случайных динамических тест-кейсов для предотвращения хардкода
-    dynamic_tests = generate_task_test_cases(task["id"])
+    dynamic_tests = task.get("dynamic_tests") or generate_task_test_cases(task["id"], task.get("base_task_id"))
 
     session_key = get_freelance_session_key(user_id)
     cooldown_manager.set_data(session_key, {
@@ -334,9 +334,9 @@ async def process_code_submission(message: Message, bot: Bot):
     status_msg = await message.reply("🧪 <b>Запуск 6-10 случайных тестов в песочнице...</b>", parse_mode="HTML")
 
     # Достаем динамо-тесты сессии
-    dynamic_tests = session.get("dynamic_tests")
+    dynamic_tests = session.get("dynamic_tests") or task.get("dynamic_tests")
     if not dynamic_tests:
-        dynamic_tests = generate_task_test_cases(task["id"])
+        dynamic_tests = generate_task_test_cases(task["id"], task.get("base_task_id"))
 
     # Запуск тестов песочницы
     test_result = await run_code_tests(code, task["entry_point"], dynamic_tests, elapsed_time_sec=elapsed)
