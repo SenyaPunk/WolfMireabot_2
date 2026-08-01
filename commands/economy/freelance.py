@@ -210,6 +210,7 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
         "user_id": user_id,
         "chat_id": chat_id,
         "task_id": task["id"],
+        "task_data": task,
         "start_time": time.time(),
         "dynamic_tests": dynamic_tests,
         "active": True
@@ -314,7 +315,9 @@ async def process_code_submission(message: Message, bot: Bot):
         )
         return
 
-    task = get_task_by_id(session.get("task_id"))
+    task = session.get("task_data")
+    if not task:
+        task = get_task_by_id(session.get("task_id"))
     if not task:
         await message.reply("❌ Ошибка: задача не найдена.")
         return
