@@ -343,6 +343,7 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         entry_point = fallback_template['entry_point']
         mark_user_task(user_id, task_id)
 
+    reward = 120 if category == "Алгосы" else random.randint(210, 340)
     safe_problem_desc = html.escape(ru_problem_desc)
 
     task_spec = {
