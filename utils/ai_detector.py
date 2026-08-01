@@ -1,50 +1,23 @@
 """
 Продвинутый модуль детекции ИИ-сгенерированного кода (ChatGPT, Claude, Gemini, DeepSeek).
-Использует AST-анализ стиля, PEP8-перфекционизм, наименования переменных, время сдачи и проверку каноничности.
-НЕ штрафует за type hints в заголовке функции, так как их выдает сам стартовый шаблон бота.
+Анализирует комментарии-пояснения, академический стиль наименования переменных, PEP8-перфекционизм и сигнатуры.
 """
 import ast
 import re
 from typing import Tuple, Set
 
-# Комментарии и фразы нейросетей
-AI_COMMENT_PATTERNS = [
-    r"#\s*step\s*\d+",
-    r"#\s*шаг\s*\d+",
-    r"#\s*initialize",
-    r"#\s*инициализаци",
-    r"#\s*base\s*case",
-    r"#\s*edge\s*case",
-    r"#\s*check\s*if",
-    r"#\s*loop\s*through",
-    r"#\s*time\s*complexity",
-    r"#\s*space\s*complexity",
-    r"#\s*сложность\s*по\s*времени",
-    r"#\s*сложность\s*по\s*памяти",
-    r"#\s*returns?:",
-    r"#\s*возвращает:",
-    r"#\s*helper\s*function",
-    r"#\s*вспомогательная\s*функция",
+# Паттерны любых пояснительных комментариев ИИ (русские и английские фразы)
+AI_EXPLANATORY_COMMENT_PATTERNS = [
+    r"#\s*(подсчет|расчет|проверка|защита|аналог|округление|возврат|обработка|находим|получаем|преобразуем|преобразование|фильтрация|создаем|инициализация|сортировка|поиск|проверяем|учитываем|добавляем|формируем|вычисляем|считываем|извлекаем)",
+    r"#\s*(без|вместо)\s+(импорта|библиотеки|использования|math|sys|os|модуля)",
+    r"#\s*(step|step\s*\d+|initialize|base\s*case|edge\s*case|check\s*if|loop\s*through|time\s*complexity|space\s*complexity|helper\s*function|returns?:)",
+    r"#\s*[а-яёa-z0-9_]+\s+(для|через|без|из|по|согласно|чтобы|если|встроенн)",
     r"time\s*complexity:\s*o\(",
-    r"space\s*complexity:\s*o\(",
-    r"#\s*учитываем",
-    r"#\s*проверяем",
-    r"#\s*создаем"
+    r"space\s*complexity:\s*o\("
 ]
 
-# Формальные академические слова, которые ИИ использует для внутренних переменных
-AI_FORMAL_VAR_WORDS = {
-    "capacity", "operations", "operation", "result", "results", "current",
-    "oldest", "seen_map", "seen_dict", "seen_set", "current_sum", "current_val",
-    "current_index", "left_pointer", "right_pointer", "char_count", "char_counts",
-    "char_map", "result_list", "result_arr", "accumulated_val", "target_sum",
-    "dummy_head", "current_node", "prev_node", "next_node", "freq_map",
-    "frequency_dict", "is_valid_flag", "intervals", "interval", "merged",
-    "compressed", "transposed", "sub_array", "timestamps", "timestamp"
-}
-
-# Короткие человеческие переменные, которые обычно пишет человек в Telegram
-HUMAN_SHORT_VARS = {"i", "j", "k", "v", "x", "y", "c", "d", "res", "ans", "lst", "arr", "s", "p", "n", "m", "t", "q"}
+# Короткие человеческие переменные (сокращения), которые обычно использует разработчик при наборе вручную
+HUMAN_SHORT_VARS = {"i", "j", "k", "v", "x", "y", "c", "d", "res", "ans", "lst", "arr", "s", "p", "st", "cnt", "lat", "lats", "n", "m", "t", "q", "elem"}
 
 
 def analyze_ai_generated_code(code: str, elapsed_time_sec: float = 999.0) -> Tuple[bool, int, str]:
@@ -58,10 +31,27 @@ def analyze_ai_generated_code(code: str, elapsed_time_sec: float = 999.0) -> Tup
     score = 0
     reasons = []
 
-    lines = [l for l in code.splitlines() if l.strip()]
+    lines = [l.strip() for l in code.splitlines() if l.strip()]
     line_count = len(lines)
 
-    # 1. Проверка времени отправки (Слишком быстрая сдача)
+    # 1. Анализ комментариев (Пояснительные комментарии ИИ)
+    comment_lines = [l for l in lines if l.startswith("#")]
+    comment_count = len(comment_lines)
+    
+    code_lower = code.lower()
+    found_explanatory_comments = 0
+    for pattern in AI_EXPLANATORY_COMMENT_PATTERNS:
+        if re.search(pattern, code_lower):
+            found_explanatory_comments += 1
+
+    if found_explanatory_comments >= 1:
+        score += 45
+        reasons.append("пояснительные комментарии ИИ к строкам кода")
+    elif comment_count >= 2:
+        score += 35
+        reasons.append("наличие нескольких строк комментариев")
+
+    # 2. Проверка времени отправки
     if elapsed_time_sec < 45.0 and line_count >= 6:
         score += 35
         reasons.append(f"сверхбыстрая сдача ({int(elapsed_time_sec)} сек от получения задачи)")
@@ -69,21 +59,7 @@ def analyze_ai_generated_code(code: str, elapsed_time_sec: float = 999.0) -> Tup
         score += 30
         reasons.append(f"аномальная скорость сдачи ({int(elapsed_time_sec)} сек)")
 
-    # 2. Анализ комментариев и docstrings (AI Fingerprints)
-    code_lower = code.lower()
-    found_ai_comments = 0
-    for pattern in AI_COMMENT_PATTERNS:
-        if re.search(pattern, code_lower):
-            found_ai_comments += 1
-
-    if found_ai_comments >= 2:
-        score += 35
-        reasons.append("характерные ИИ-комментарии")
-    elif found_ai_comments == 1:
-        score += 20
-        reasons.append("шаблонный комментарий нейросети")
-
-    # 3. Анализ AST
+    # 3. Анализ AST-дерева и переменных
     try:
         tree = ast.parse(code)
     except Exception:
@@ -91,44 +67,39 @@ def analyze_ai_generated_code(code: str, elapsed_time_sec: float = 999.0) -> Tup
 
     all_vars: Set[str] = set()
     has_docstring = False
-    has_internal_type_hints = False
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Param)):
-            all_vars.add(node.id)
+            # Игнорируем стандартные имена функций
+            if node.id not in {"parse_nginx_logs", "two_sum", "is_valid_parentheses", "max_subarray_sum", "merge_intervals", "compress_string", "transpose_matrix", "simulate_lru_cache", "check_rate_limit", "filter_gps_track", "clsx"}:
+                all_vars.add(node.id)
 
         if isinstance(node, ast.FunctionDef):
             docstring = ast.get_docstring(node)
             if docstring and len(docstring) > 15:
                 has_docstring = True
 
-        # Проверяем ВСПОМОГАТЕЛЬНЫЕ локальные аннотации внутри тела (AnnAssign e.g. x: int = 5)
-        # Игнорируем заголовки функций, так как type hints там даёт сам стартовый шаблон бота
-        if isinstance(node, ast.AnnAssign):
-            has_internal_type_hints = True
-
     if has_docstring:
         score += 25
         reasons.append("формальный ИИ-docstring")
 
-    if has_internal_type_hints:
-        score += 20
-        reasons.append("внутренние аннотации типов переменным")
-
-    # 4. Анализ стиля наименования переменных (ИИ vs Человек)
+    # 4. Анализ длин и академичности имен переменных
     if all_vars:
-        ai_var_matches = all_vars.intersection(AI_FORMAL_VAR_WORDS)
+        avg_var_len = sum(len(v) for v in all_vars) / len(all_vars)
         human_short_matches = all_vars.intersection(HUMAN_SHORT_VARS)
+        snake_case_vars = [v for v in all_vars if "_" in v]
 
-        if len(ai_var_matches) >= 2 and len(human_short_matches) <= 1:
-            score += 30
-            reasons.append("академический стиль переменных ИИ (" + ", ".join(list(ai_var_matches)[:3]) + ")")
-        elif len(ai_var_matches) >= 1:
-            score += 15
+        # Если средняя длина переменных > 7.5 символов и нет коротких человеческих сокращений
+        if (avg_var_len >= 7.5 or len(snake_case_vars) >= 2) and len(human_short_matches) == 0:
+            score += 35
+            reasons.append("академический стиль полного наименования переменных нейросети")
+        elif avg_var_len >= 6.5 and len(human_short_matches) == 0:
+            score += 20
+            reasons.append("отсутствие индивидуальных сокращений в переменных")
 
     # 5. Оценка PEP8 Перфекционизма
     pep8_perfect_spaces = len(re.findall(r"\b\w+\s+=\s+\w+\b", code)) + len(re.findall(r"\b\w+\s+==\s+\w+\b", code))
-    if pep8_perfect_spaces >= 4 and line_count >= 8:
+    if pep8_perfect_spaces >= 3 and line_count >= 6:
         score += 15
         reasons.append("идеальное ИИ-форматирование PEP8")
 
