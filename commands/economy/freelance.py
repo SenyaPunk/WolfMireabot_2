@@ -200,10 +200,16 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
     chat_id = callback_query.message.chat.id
     user_name = callback_query.from_user.first_name or "Разработчик"
 
-    task = parse_and_adapt_online_task(category, user_id)
-
-    # Генерируем 6-10 случайных динамических тест-кейсов для предотвращения хардкода
-    dynamic_tests = task.get("dynamic_tests") or generate_task_test_cases(task["id"], task.get("base_task_id"))
+    try:
+        task = parse_and_adapt_online_task(category, user_id)
+        dynamic_tests = task.get("dynamic_tests") or generate_task_test_cases(task["id"], task.get("base_task_id"))
+    except Exception as e:
+        logger.error(f"Error parsing task for user {user_id}: {e}", exc_info=True)
+        try:
+            await callback_query.message.edit_text("❌ <b>Ошибка загрузки задачи.</b> Попробуйте еще раз зайти в /freelance.", parse_mode="HTML")
+        except Exception:
+            pass
+        return
 
     session_key = get_freelance_session_key(user_id)
     cooldown_manager.set_data(session_key, {
