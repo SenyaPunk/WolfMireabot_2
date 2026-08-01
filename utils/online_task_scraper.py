@@ -1,6 +1,6 @@
 """
 Настоящий живой веб-парсер задач с LeetCode API (3000+ задач) и Codeforces API (11000+ задач).
-Парсит НАСТОЯЩИЙ ТЕКСТ ЗАДАЧИ, теги, вычленяет чистые Python-функции и генерирует синхронные динамо-тесты.
+Выполняет автоматический перевод условий, названий и примеров на РУССКИЙ ЯЗЫК.
 """
 import os
 import json
@@ -9,6 +9,7 @@ import html
 import random
 import logging
 import urllib.request
+import urllib.parse
 from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,36 @@ LEETCODE_HOT_SLUGS = [
     "container-with-most-water", "3sum", "remove-nth-node-from-end-of-list", "search-in-rotated-sorted-array",
     "combination-sum", "permutations", "rotate-image", "group-anagrams", "word-search"
 ]
+
+RUSSIAN_TITLE_MAP = {
+    "Two Sum": "Два числа с заданной суммой",
+    "Valid Parentheses": "Проверка правильности скобочной последовательности",
+    "Merge Two Sorted Lists": "Слияние двух отсортированных списков",
+    "Best Time to Buy and Sell Stock": "Максимальная прибыль от покупки акций",
+    "Valid Palindrome": "Проверка строки на палиндром",
+    "Invert Binary Tree": "Инвертирование бинарного дерева",
+    "Valid Anagram": "Проверка анаграммы в строках",
+    "Binary Search": "Бинарный поиск в отсортированном массиве",
+    "Linked List Cycle": "Обнаружение цикла в связном списке",
+    "Maximum Subarray": "Максимальная сумма подмассива",
+    "Climbing Stairs": "Количество способов подняться по ступеням",
+    "Coin Change": "Минимальное количество монет для сдачи",
+    "Longest Increasing Subsequence": "Наибольшая возрастающая подпоследовательность",
+    "LRU Cache": "Проектирование и симуляция LRU-кэша",
+    "Number of Islands": "Подсчет связных островов на сетке",
+    "Reverse Linked List": "Разворот односвязного списка",
+    "Course Schedule": "Планирование порядка прохождения курсов",
+    "Implement Trie (Prefix Tree)": "Реализация префиксного дерева (Trie)",
+    "Container With Most Water": "Максимальный объем воды между контейнерами",
+    "3Sum": "Три числа с нулевой суммой",
+    "Remove Nth Node From End of List": "Удаление N-го узла с конца списка",
+    "Search in Rotated Sorted Array": "Поиск в повернутом отсортированном массиве",
+    "Combination Sum": "Поиск комбинаций с заданной суммой",
+    "Permutations": "Генерация всех перестановок массива",
+    "Rotate Image": "Поворот матрицы на 90 градусов",
+    "Group Anagrams": "Группировка анаграмм в списке строк",
+    "Word Search": "Поиск слова в двухмерной сетке символов"
+}
 
 COMPANY_BRANDING = {
     "Backend": [
@@ -61,6 +92,52 @@ COMPANY_BRANDING = {
         ("Алгоритмическая Арена", "Баттл по алгоритмам и структурам данных")
     ]
 }
+
+
+def translate_text_to_russian(text: str) -> str:
+    """Переводит англоязычный текст ТЗ на русский язык с сохранением тегов и форматированием примеров."""
+    if not text:
+        return ""
+
+    # Блочные замены структурных ключевых слов
+    structural_replacements = [
+        (r"\bExample (\d+):", r"🔹 <b>Пример \1:</b>"),
+        (r"\bInput:", "📥 <b>Входные данные:</b>"),
+        (r"\bOutput:", "📤 <b>Выходные данные:</b>"),
+        (r"\bExplanation:", "💡 <b>Пояснение:</b>"),
+        (r"\bConstraints:", "⚙️ <b>Ограничения:</b>"),
+        (r"\bNote:", "📌 <b>Примечание:</b>"),
+        (r"\bReturn true\b", "Верните True"),
+        (r"\bReturn false\b", "Верните False"),
+        (r"\bAn integer\b", "Целое число"),
+        (r"\bAn array of integers\b", "Массив целых чисел"),
+        (r"\bGiven an array\b", "Дан массив"),
+        (r"\bGiven a string\b", "Дана строка"),
+        (r"\bGiven two strings\b", "Даны две строки"),
+        (r"\bYou are given\b", "Вам дан"),
+        (r"\bReturn the answer\b", "Верните ответ"),
+        (r"\bReturn indices of the two numbers\b", "Верните индексы двух чисел"),
+        (r"\bReturn all the possible\b", "Верните все возможные"),
+        (r"\bThere are a total of\b", "Всего имеется")
+    ]
+
+    for pat, repl in structural_replacements:
+        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
+
+    # Запрос онлайн-переводчика для основного тела текста
+    try:
+        query_text = text[:450]
+        url = "https://api.mymemory.translated.net/get?q=" + urllib.parse.quote(query_text) + "&langpair=en|ru"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=4) as response:
+            res = json.loads(response.read().decode('utf-8'))
+            translated = res.get('responseData', {}).get('translatedText')
+            if translated and len(translated) > 15 and "MYMEMORY WARNING" not in translated:
+                text = translated + "\n\n" + text[450:]
+    except Exception as e:
+        logger.debug(f"Translation API fallback used: {e}")
+
+    return text
 
 
 def extract_leetcode_function(py_snippet: str) -> Tuple[Optional[str], Optional[str]]:
@@ -214,7 +291,7 @@ def mark_user_task(user_id: int, task_id: str):
 def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
     """
     Выполняет НАСТОЯЩИЙ живой парсинг полных задач с LeetCode GraphQL API,
-    гармонично сопоставляет сигнатуры функций с ТЗ и генерирует уникальные тесты.
+    переводит условие задачи на русский язык и генерирует уникальные тесты.
     """
     used_history = set(get_user_history(user_id))
 
@@ -235,7 +312,6 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
     from utils.it_tasks_db import IT_TASKS_DB, generate_task_test_cases
     fallback_template = random.choice([t for t in IT_TASKS_DB if category == "Any" or t.get("category") == category] or IT_TASKS_DB)
 
-    # Пробуем извлечь чистую сигнатуру функции прямо из распарсенной задачи LeetCode
     extracted_fn, extracted_code = extract_leetcode_function(parsed_problem.get('raw_py_code', '') if parsed_problem else '')
 
     if extracted_fn and extracted_code:
@@ -252,14 +328,19 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
     if parsed_problem:
         task_id = f"parsed_{parsed_problem['id']}"
         raw_title = parsed_problem['title']
-        tags_str = ", ".join(parsed_problem['tags']) if parsed_problem['tags'] else "Algorithm"
-        problem_desc = parsed_problem['raw_description']
+        ru_title = RUSSIAN_TITLE_MAP.get(raw_title, raw_title)
+        tags_str = ", ".join(parsed_problem['tags']) if parsed_problem['tags'] else "Алгоритмы"
+        
+        # Переводим официальный текст задачи на русский язык
+        ru_problem_desc = translate_text_to_russian(parsed_problem['raw_description'])
         mark_user_task(user_id, parsed_problem['id'])
     else:
         task_id = f"parsed_{base_id}_{random.randint(1000, 9999)}"
-        raw_title = fallback_template['title']
+        ru_title = fallback_template['title']
         tags_str = category
-        problem_desc = fallback_template['description']
+        ru_problem_desc = fallback_template['description']
+        starter_code = fallback_template['starter_code']
+        entry_point = fallback_template['entry_point']
         mark_user_task(user_id, task_id)
 
     reward = 120 if category == "Алгосы" else random.randint(210, 340)
@@ -268,7 +349,7 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         "id": task_id,
         "base_task_id": base_id,
         "company": company_name,
-        "title": f"{raw_title} [{tags_str}]",
+        "title": f"{ru_title} [{tags_str}]",
         "category": category,
         "difficulty": parsed_problem.get("difficulty", "MEDIUM") if parsed_problem else "MEDIUM",
         "language": "Python 3.11",
@@ -276,7 +357,8 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         "description": (
             f"🌐 <b>Живое ТЗ от компании / {company_name}:</b>\n"
             f"<i>{company_info[1]}</i>\n\n"
-            f"📝 <b>Официальное условие с LeetCode:</b>\n{problem_desc}\n\n"
+            f"📝 <b>Официальное условие задачи (русский перевод):</b>\n"
+            f"{ru_problem_desc}\n\n"
             f"💡 <b>Требование:</b> Реализуйте функцию <code>{entry_point}</code> согласно спецификации выше."
         ),
         "starter_code": starter_code,
