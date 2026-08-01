@@ -242,7 +242,7 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
 
     diff_badge = "🔥 <code>[SENIOR HARD]</code>" if task.get("is_hard") else ("⚡ <code>[ALGO]</code>" if task["category"] == "Алгосы" else "⚡ <code>[MEDIUM]</code>")
 
-    await callback_query.message.edit_text(
+    msg_text = (
         f"💼 <b>[JIRA TICKET] {task['company']}</b>\n"
         f"🎯 <b>Задача:</b> {task['title']} {diff_badge}\n"
         f"🏷️ <b>Категория:</b> <code>{task['category']}</code> | <b>Стек:</b> <code>{task['language']}</code>\n"
@@ -255,11 +255,25 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
         f"<pre><code class=\"language-python\">{starter_code_fmt}</code></pre>\n\n"
         f"📤 <b>Как отправить решение:</b>\n"
         f"Отправьте готовый код <b>ответом (Reply) на это сообщение</b> или <b>напишите в ЛС боту</b> с командой:\n"
-        f"<code>/submit &lt;ваш_код&gt;</code>",
-        reply_markup=cancel_kb,
-        parse_mode="HTML",
-        disable_web_page_preview=False
+        f"<code>/submit &lt;ваш_код&gt;</code>"
     )
+
+    try:
+        await callback_query.message.edit_text(
+            msg_text,
+            reply_markup=cancel_kb,
+            parse_mode="HTML",
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        logger.warning(f"HTML parse mode edit failed: {e}, falling back to plain text edit")
+        clean_text = re.sub(r'<[^>]+>', '', msg_text)
+        await callback_query.message.edit_text(
+            clean_text,
+            reply_markup=cancel_kb,
+            parse_mode=None,
+            disable_web_page_preview=True
+        )
 
 
 @router.callback_query(F.data.startswith("freelance_cancel:"))

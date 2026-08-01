@@ -343,7 +343,7 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
         entry_point = fallback_template['entry_point']
         mark_user_task(user_id, task_id)
 
-    reward = 120 if category == "Алгосы" else random.randint(210, 340)
+    safe_problem_desc = html.escape(ru_problem_desc)
 
     task_spec = {
         "id": task_id,
@@ -358,7 +358,7 @@ def parse_and_adapt_online_task(category: str, user_id: int) -> Dict[str, Any]:
             f"🌐 <b>Живое ТЗ от компании / {company_name}:</b>\n"
             f"<i>{company_info[1]}</i>\n\n"
             f"📝 <b>Официальное условие задачи (русский перевод):</b>\n"
-            f"{ru_problem_desc}\n\n"
+            f"{safe_problem_desc}\n\n"
             f"💡 <b>Требование:</b> Реализуйте функцию <code>{entry_point}</code> согласно спецификации выше."
         ),
         "starter_code": starter_code,
