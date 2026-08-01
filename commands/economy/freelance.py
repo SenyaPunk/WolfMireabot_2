@@ -20,6 +20,7 @@ from utils.it_tasks_db import IT_TASKS_DB, get_tasks_by_category, get_task_by_id
 from utils.code_sandbox import run_code_tests, validate_code_safety
 from utils.telegraph_helper import create_telegraph_page
 from utils.task_parser import CompanyTaskParser, AlgoTaskParser
+from utils.online_task_scraper import parse_and_adapt_online_task
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -199,10 +200,7 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
     chat_id = callback_query.message.chat.id
     user_name = callback_query.from_user.first_name or "Разработчик"
 
-    if category == "Алгосы":
-        task = AlgoTaskParser.parse_algo_task(user_id)
-    else:
-        task = CompanyTaskParser.parse_company_task(category, user_id)
+    task = parse_and_adapt_online_task(category, user_id)
 
     # Генерируем 6-10 случайных динамических тест-кейсов для предотвращения хардкода
     dynamic_tests = generate_task_test_cases(task["id"])
