@@ -70,97 +70,12 @@ def extract_code_from_text(text: str) -> str:
 
 @router.message(Command("freelance", "itwork", "фриланс", "айти"))
 async def freelance_command(message: Message, bot: Bot):
-    if not message.from_user:
-        return
-
-    if message.chat.type == "private":
-        await send_error_message(
-            message,
-            "🚫 <b>Эта команда работает только в группах!</b>\n\n"
-            "💡 Вы можете взять фриланс-заказ в групповом чате, а отправлять готовый код решения "
-            "сюда в ЛС боту через команду <code>/submit &lt;ваш_код&gt;</code>!"
-        )
-        return
-
-    user = message.from_user
-    chat_id = message.chat.id
-    user_name = user.first_name or "Разработчик"
-
-    cooldown_key = get_freelance_cooldown_key(user.id, chat_id)
-    remaining_time = cooldown_manager.check_cooldown(cooldown_key, FREELANCE_COOLDOWN)
-
-    if remaining_time is not None:
-        await message.reply(
-            f"🚫 <b>Вы уже выполняли IT-заказ!</b>\n\n"
-            f"⏰ Следующий доступный заказ через <b>{format_time_remaining(remaining_time)}</b>\n"
-            f"💡 <i>Отдохните или подтяните знания перед следующей таской...</i>",
-            parse_mode="HTML"
-        )
-        return
-
-    session_key = get_freelance_session_key(user.id)
-    session = cooldown_manager.get_data(session_key)
-
-    # Проверяем, есть ли активная задача
-    if session and session.get("active", False):
-        elapsed = time.time() - session.get("start_time", 0)
-        time_left = TASK_TIME_LIMIT - elapsed
-
-        if time_left > 0:
-            task = get_task_by_id(session.get("task_id"))
-            if task:
-                import html
-                starter_code_fmt = html.escape(task['starter_code'])
-                diff_badge = "🔥 <code>[SENIOR HARD]</code>" if task.get("is_hard") else "⚡ <code>[MEDIUM]</code>"
-
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="❌ Отказаться от задачи", callback_data=f"freelance_cancel:{user.id}")]
-                ])
-                await message.reply(
-                    f"💼 <b>У вас уже есть активный заказ [{task['company']}]!</b>\n\n"
-                    f"🎯 <b>Задача:</b> {task['title']} {diff_badge}\n"
-                    f"🏷️ <b>Категория:</b> <code>{task['category']}</code> | <b>Стек:</b> <code>{task['language']}</code>\n"
-                    f"💰 <b>Награда:</b> <code>{task['reward']} монет</code> | ⏰ <b>Осталось времени:</b> <code>{format_time_remaining(time_left)}</code>\n\n"
-                    f"📋 <b>Техническое задание:</b>\n"
-                    f"{task['description']}\n\n"
-                    f"🛠️ <b>Стартовый шаблон (нажмите для копирования):</b>\n"
-                    f"<pre><code class=\"language-python\">{starter_code_fmt}</code></pre>\n\n"
-                    f"📤 <b>Как отправить решение:</b>\n"
-                    f"Отправьте готовый код <b>ответом (Reply) на это сообщение</b> или <b>в ЛС боту</b> с командой:\n"
-                    f"<code>/submit &lt;ваш_код&gt;</code>",
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-                return
-
-    # Выбор категории (включая новую категорию "Алгосы")
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⚡ Алгосы", callback_data=f"freelance_cat:Алгосы:{user.id}"),
-            InlineKeyboardButton(text="⚙️ Backend", callback_data=f"freelance_cat:Backend:{user.id}")
-        ],
-        [
-            InlineKeyboardButton(text="🎨 Frontend", callback_data=f"freelance_cat:Frontend:{user.id}"),
-            InlineKeyboardButton(text="📱 Mobile", callback_data=f"freelance_cat:Mobile:{user.id}")
-        ],
-        [
-            InlineKeyboardButton(text="🛠️ DevOps", callback_data=f"freelance_cat:DevOps:{user.id}"),
-            InlineKeyboardButton(text="🎲 Любая задача", callback_data=f"freelance_cat:Any:{user.id}")
-        ]
-    ])
-
     await message.reply(
-        f"💻 <b>IT-Биржа заказов и Алгоритмов!</b>\n\n"
-        f"👤 <b>Разработчик:</b> {user_name}\n"
-        f"⏱️ <b>Время на выполнение:</b> 2.5 часа (150 минут)\n"
-        f"⚡ <b>Категория Алгосы:</b> награда ~80-160 монет (быстрые алгоритмы)\n"
-        f"💼 <b>Категории IT-компаний:</b> награда ~180-380+ монет\n"
-        f"🛡️ <b>Анти-чит:</b> К каждой таске генерируются 6-10 случайных динамо-тестов!\n"
-        f"⌛ <b>Кулдаун:</b> 12 часов\n\n"
-        f"👇 <b>Выберите направление для получения задачи:</b>",
-        reply_markup=keyboard,
+        "🛠️ <b>IT-фриланс (/itwork) временно отключен на техническое обслуживание.</b>\n"
+        "<i>Следите за обновлениями в боте!</i>",
         parse_mode="HTML"
     )
+    return
 
 
 @router.callback_query(F.data.startswith("freelance_cat:"))
@@ -305,7 +220,11 @@ async def freelance_cancel_callback(callback_query: CallbackQuery):
 
 @router.message(Command("submit"))
 async def submit_code_command(message: Message, bot: Bot):
-    await process_code_submission(message, bot)
+    await message.reply(
+        "🛠️ <b>IT-фриланс (/itwork) временно отключен на техническое обслуживание.</b>",
+        parse_mode="HTML"
+    )
+    return
 
 
 @router.message(F.text & (F.text.contains("def ") | F.text.contains("```")))
