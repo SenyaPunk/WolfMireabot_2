@@ -70,11 +70,6 @@ def extract_code_from_text(text: str) -> str:
 
 @router.message(Command("freelance", "itwork", "фриланс", "айти"))
 async def freelance_command(message: Message, bot: Bot):
-    await message.reply(
-        "🛠️ <b>IT-фриланс (/itwork) временно отключен на техническое обслуживание.</b>\n"
-        "<i>Следите за обновлениями в боте!</i>",
-        parse_mode="HTML"
-    )
     return
 
 
@@ -220,10 +215,6 @@ async def freelance_cancel_callback(callback_query: CallbackQuery):
 
 @router.message(Command("submit"))
 async def submit_code_command(message: Message, bot: Bot):
-    await message.reply(
-        "🛠️ <b>IT-фриланс (/itwork) временно отключен на техническое обслуживание.</b>",
-        parse_mode="HTML"
-    )
     return
 
 
