@@ -186,8 +186,10 @@ async def main():
     except Exception as e:
         logging.error(f"Ошибка безопасной очистки игр на старте бота: {e}")
 
-    # Запуск фонового мониторинга жизненного цикла игр
+    # Запуск фонового мониторинга жизненного цикла игр и порки рабов
     asyncio.create_task(game_lifetime_monitor(bot))
+    from utils.whip_monitor import whip_monitor
+    asyncio.create_task(whip_monitor(bot))
 
     # Установка списка команд для отображения в Telegram с тегом @WolfMIREA_bot
     from aiogram.types import BotCommand
@@ -200,6 +202,7 @@ async def main():
         BotCommand(command="drink", description="Выпить в баре"),
         BotCommand(command="selfcare", description="Сделать себе приятно"),
         BotCommand(command="buy_slave", description="Купить раба"),
+        BotCommand(command="whip", description="Отхлестать раба плеткой"),
         BotCommand(command="my_slaves", description="Посмотреть ваших рабов"),
         BotCommand(command="free_slave", description="Освободить раба"),
         BotCommand(command="my_master", description="Посмотреть хозяина"),

@@ -8,6 +8,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 
 from utils.admin_manager import AdminManager
 from utils.economy_manager import EconomyManager
+from utils.slave_manager import SlaveManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
@@ -23,6 +24,8 @@ from .helpers import (
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+slave_manager = SlaveManager()
 
 admin_manager = AdminManager()
 economy_manager = EconomyManager()
@@ -359,6 +362,7 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     
     user = callback.from_user
     user_id = user.id
+    slave_manager.unwhip_slave(user_id)
     
     game_key = get_game_key(chat_id)
     

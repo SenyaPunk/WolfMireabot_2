@@ -78,6 +78,8 @@ async def freelance_category_callback(callback_query: CallbackQuery, bot: Bot):
     if not callback_query.data or not callback_query.from_user or not callback_query.message:
         return
 
+    slave_manager.unwhip_slave(callback_query.from_user.id)
+
     try:
         await callback_query.answer("⏳ Генерируем уникальные тесты... Пожалуйста, подождите!", show_alert=False)
     except Exception:

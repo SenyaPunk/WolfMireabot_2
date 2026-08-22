@@ -6,6 +6,7 @@ from aiogram.types import Message
 
 from utils.economy_manager import EconomyManager
 from utils.slave_manager import SlaveManager
+from utils.cooldown_manager import CooldownManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
 slave_manager = SlaveManager()
+cooldown_manager = CooldownManager()
 user_storage = UserStorage()
 
 
@@ -334,3 +336,90 @@ async def free_slave_command(message: Message):
         parse_mode="HTML",
         disable_web_page_preview=True
     )
+
+
+# /whip, /плетка, /хлестать, /плеть
+@router.message(Command("whip", "плетка", "хлестать", "плеть"))
+async def whip_command(message: Message):
+    if message.chat.type == "private":
+        await send_error_message(message, "❌ Эта команда доступна только в групповых чатах.")
+        return
+
+    owner_id = message.from_user.id
+    owner_link = get_user_link(owner_id)
+
+    # 1. Проверка кулдауна у хозяина (5 часов = 18000 секунд)
+    cooldown_key = f"whip_cooldown:{owner_id}"
+    remaining = cooldown_manager.check_cooldown(cooldown_key, 18000)
+    if remaining is not None:
+        hours = int(remaining // 3600)
+        minutes = int((remaining % 3600) // 60)
+        seconds = int(remaining % 60)
+        if hours > 0:
+            time_str = f"{hours}ч {minutes}м {seconds}с"
+        elif minutes > 0:
+            time_str = f"{minutes}м {seconds}с"
+        else:
+            time_str = f"{seconds}с"
+
+        await send_error_message(
+            message,
+            f"⏳ <b>Плетка на восстановительной перезарядке!</b>\n\n"
+            f"Вы сможете снова хлестать раба через <b>{time_str}</b>."
+        )
+        return
+
+    target_user_id = None
+
+    if message.reply_to_message:
+        target_user_id = message.reply_to_message.from_user.id
+    else:
+        args = message.text.split()
+        if len(args) > 1:
+            username = args[1].lstrip('@')
+            target_user_id = user_storage.get_user_id(username)
+            if not target_user_id:
+                await send_error_message(message, f"❌ Пользователь @{username} не найден.")
+                return
+        else:
+            await send_error_message(
+                message,
+                "💡 <b>Использование команды:</b>\n"
+                "• Ответьте на сообщение раба: <code>/плетка</code>\n"
+                "• Укажите юзернейм: <code>/плетка @username</code>"
+            )
+            return
+
+    if owner_id == target_user_id:
+        await send_error_message(message, "❌ Вы не можете отхлестать самого себя!")
+        return
+
+    target_link = get_user_link(target_user_id)
+    current_owner = slave_manager.get_owner(target_user_id)
+
+    if current_owner != owner_id:
+        await send_error_message(message, f"❌ Пользователь {target_link} не является вашим рабом!")
+        return
+
+    if slave_manager.is_whipped(target_user_id):
+        await send_error_message(
+            message,
+            f"❌ Пользователь {target_link} уже отхлестан плеткой!\n"
+            f"С него и так каждые 10 минут снимаются монеты. Дождитесь, пока он поработает или сыграет в казино."
+        )
+        return
+
+    # Накладываем статус порки и взводим кулдаун
+    slave_manager.whip_slave(target_user_id, owner_id, message.chat.id)
+    cooldown_manager.set_cooldown(cooldown_key)
+
+    await message.reply(
+        f"💥 <b>ХЛЁСТ ПЛЁТКОЙ!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👑 {owner_link} жестоко отхлестал раба {target_link} плеткой! 🩸\n\n"
+        f"💸 <i>Теперь каждые 10 минут у {target_link} будет списываться по 5 монет в пользу хозяина, "
+        f"пока раб не поработает (/work, /freelance) или не сыграет в казино (/roulette, /blackjack)!</i>",
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+

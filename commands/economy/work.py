@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from utils.economy_manager import EconomyManager
+from utils.slave_manager import SlaveManager
 from utils.cooldown_manager import CooldownManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
@@ -17,6 +18,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
+slave_manager = SlaveManager()
 cooldown_manager = CooldownManager()
 user_storage = UserStorage()
 
@@ -156,6 +158,9 @@ async def work_command(message: Message, bot: Bot):
     
     user = message.from_user
     chat_id = message.chat.id
+    
+    # Снимаем состояние порки, если пользователь был отхлестан
+    slave_manager.unwhip_slave(user.id)
     
     if message.chat.type == "private":
         await send_error_message(message, "🚫 Эта команда работает только в группах!")

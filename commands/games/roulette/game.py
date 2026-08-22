@@ -147,6 +147,7 @@ async def roulette_command(message: Message):
     
     user = message.from_user
     user_id = user.id
+    slave_manager.unwhip_slave(user_id)
     
     # 1. Проверяем, идет ли спин у пользователя
     if user_id in active_spins:
@@ -372,6 +373,7 @@ async def roulette_cooldown_alert_callback(callback_query: CallbackQuery):
 async def run_spin_game(bot: Bot, callback_query: CallbackQuery, user_id: int, bet_amount: int):
     """Запуск раунда Слотов 777."""
     active_spins.add(user_id)
+    slave_manager.unwhip_slave(user_id)
     try:
         user_last_bets[user_id] = bet_amount
         

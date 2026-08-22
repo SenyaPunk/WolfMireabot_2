@@ -201,3 +201,44 @@ class SlaveManager:
         )
 
         return slave_share, master_share, owner_id
+
+    def whip_slave(self, slave_id: int, owner_id: int, chat_id: int) -> bool:
+        """Устанавливает статус порки для раба."""
+        if slave_id in self.slaves:
+            self.slaves[slave_id]["is_whipped"] = True
+            self.slaves[slave_id]["last_whip_tax_time"] = time.time()
+            self.slaves[slave_id]["whipped_by"] = owner_id
+            self.slaves[slave_id]["whip_chat_id"] = chat_id
+            self.save_slaves()
+            logger.info(f"Раб {slave_id} отхлестан хозяином {owner_id} в чате {chat_id}")
+            return True
+        return False
+
+    def unwhip_slave(self, slave_id: int) -> bool:
+        """Снимает статус порки с раба."""
+        slave_data = self.get_slave_data(slave_id)
+        if slave_data and slave_data.get("is_whipped"):
+            slave_data["is_whipped"] = False
+            slave_data.pop("last_whip_tax_time", None)
+            slave_data.pop("whipped_by", None)
+            slave_data.pop("whip_chat_id", None)
+            self.save_slaves()
+            logger.info(f"С раба {slave_id} снято состояние порки.")
+            return True
+        return False
+
+    def is_whipped(self, slave_id: int) -> bool:
+        """Проверяет, находится ли раб под поркой."""
+        slave_data = self.get_slave_data(slave_id)
+        if slave_data:
+            return bool(slave_data.get("is_whipped", False))
+        return False
+
+    def get_whipped_slaves(self) -> List[Tuple[int, Dict[str, Any]]]:
+        """Возвращает список всех отхлестанных рабов."""
+        result = []
+        for s_id, s_data in self.slaves.items():
+            if s_data.get("is_whipped"):
+                result.append((s_id, s_data))
+        return result
+
