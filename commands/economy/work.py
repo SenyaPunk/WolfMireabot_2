@@ -160,7 +160,16 @@ async def work_command(message: Message, bot: Bot):
     chat_id = message.chat.id
     
     # Снимаем состояние порки, если пользователь был отхлестан
-    slave_manager.unwhip_slave(user.id)
+    if slave_manager.unwhip_slave(user.id):
+        user_link = get_user_link(user.id, user.first_name)
+        try:
+            await message.answer(
+                f"🕊 <b>ПОРКА ЗАВЕРШЕНА!</b>\n\n"
+                f"👤 {user_link} поработал(а) — порка плеткой остановлена, и монеты больше не списываются!",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.warning(f"Could not send unwhip notification in work: {e}")
     
     if message.chat.type == "private":
         await send_error_message(message, "🚫 Эта команда работает только в группах!")

@@ -147,7 +147,16 @@ async def roulette_command(message: Message):
     
     user = message.from_user
     user_id = user.id
-    slave_manager.unwhip_slave(user_id)
+    if slave_manager.unwhip_slave(user_id):
+        user_link = get_user_link(user_id, user.first_name)
+        try:
+            await message.answer(
+                f"🕊 <b>ПОРКА ЗАВЕРШЕНА!</b>\n\n"
+                f"👤 {user_link} сыграл(а) в казино — порка плеткой остановлена, и монеты больше не списываются!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
     
     # 1. Проверяем, идет ли спин у пользователя
     if user_id in active_spins:

@@ -362,7 +362,16 @@ async def blackjack_join_callback(callback: CallbackQuery, bot: Bot):
     
     user = callback.from_user
     user_id = user.id
-    slave_manager.unwhip_slave(user_id)
+    if slave_manager.unwhip_slave(user_id):
+        user_link = get_user_link(user_id, user.first_name)
+        try:
+            await callback.message.answer(
+                f"🕊 <b>ПОРКА ЗАВЕРШЕНА!</b>\n\n"
+                f"👤 {user_link} сыграл(а) в казино — порка плеткой остановлена, и монеты больше не списываются!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
     
     game_key = get_game_key(chat_id)
     
