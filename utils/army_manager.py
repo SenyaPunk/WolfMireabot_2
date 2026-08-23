@@ -1,4 +1,5 @@
 """Модуль для управления армиями и войсками."""
+import html
 import json
 import logging
 import queue
@@ -136,16 +137,16 @@ class ArmyManager:
         if self.get_user_army_key(creator_id):
             existing_army, _ = self.get_user_army(creator_id)
             army_title = existing_army['name'] if existing_army else "армии"
-            return False, f"❌ Вы уже состоите в армии «{army_title}»! Сначала покиньте её."
+            return False, f"❌ Вы уже состоите в армии «<b>{html.escape(army_title)}</b>»! Сначала покиньте её."
 
         clean_name = army_name.lower()
         if clean_name in self.armies:
-            return False, f"❌ Армия с названием «{army_name}» уже существует!"
+            return False, f"❌ Армия с названием «<b>{html.escape(army_name)}</b>» уже существует!"
 
         # Проверка баланса монет (700 монет)
         balance = self.economy_manager.get_balance(creator_id)
         if balance < CREATE_ARMY_COST:
-            return False, f"❌ Недостаточно монет! Создание армии стоит **{int(CREATE_ARMY_COST)} монет** (ваш баланс: **{balance:.2f} монет**)."
+            return False, f"❌ Недостаточно монет! Создание армии стоит <b>{int(CREATE_ARMY_COST)} монет</b> (ваш баланс: <b>{balance:.2f} монет</b>)."
 
         # Списываем монеты
         self.economy_manager.remove_money(creator_id, CREATE_ARMY_COST)
@@ -174,7 +175,12 @@ class ArmyManager:
         self.user_army_map[creator_id] = clean_name
         self.save_armies()
 
-        return True, f"🪖 **Армия «{army_name}» успешно создана!**\n👑 Ваш статус: **{RANK_CREATOR}**\n👥 Лимит численности: **1/{max_members} чел.**\n💰 Списано: **{int(CREATE_ARMY_COST)} монет**."
+        return True, (
+            f"🪖 <b>Армия «{html.escape(army_name)}» успешно создана!</b>\n"
+            f"👑 Ваш статус: <b>{html.escape(RANK_CREATOR)}</b>\n"
+            f"👥 Лимит численности: <b>1/{max_members} чел.</b>\n"
+            f"💰 Списано: <b>{int(CREATE_ARMY_COST)} монет</b>."
+        )
 
     def join_army(self, user_id: int, user_name: str, army_name: str) -> Tuple[bool, str]:
         army_name = army_name.strip()
@@ -184,16 +190,16 @@ class ArmyManager:
         if self.get_user_army_key(user_id):
             existing_army, _ = self.get_user_army(user_id)
             army_title = existing_army['name'] if existing_army else "армии"
-            return False, f"❌ Вы уже состоите в армии «{army_title}»! Сначала покиньте её."
+            return False, f"❌ Вы уже состоите в армии «<b>{html.escape(army_title)}</b>»! Сначала покиньте её."
 
         clean_name = army_name.lower()
         army = self.armies.get(clean_name)
         if not army:
-            return False, f"❌ Армия с названием «{army_name}» не найдена!"
+            return False, f"❌ Армия с названием «<b>{html.escape(army_name)}</b>» не найдена!"
 
         members = army.get("members", {})
         if len(members) >= army.get("max_members", 10):
-            return False, f"❌ В армии «{army['name']}» нет свободных мест! Достигнут лимит численности ({len(members)}/{army['max_members']} чел.)."
+            return False, f"❌ В армии «<b>{html.escape(army['name'])}</b>» нет свободных мест! Достигнут лимит численности ({len(members)}/{army['max_members']} чел.)."
 
         now = time.time()
         members[str(user_id)] = {
@@ -206,7 +212,11 @@ class ArmyManager:
         self.user_army_map[user_id] = clean_name
         self.save_armies()
 
-        return True, f"🎖️ Вы успешно вступили в армию «{army['name']}»!\nВаше звание: **{RANK_DEFAULT}**.\nСостав: **{len(members)}/{army['max_members']} чел.**"
+        return True, (
+            f"🎖️ Вы успешно вступили в армию «<b>{html.escape(army['name'])}</b>»!\n"
+            f"Ваше звание: <b>{html.escape(RANK_DEFAULT)}</b>.\n"
+            f"Состав: <b>{len(members)}/{army['max_members']} чел.</b>"
+        )
 
     def leave_army(self, user_id: int) -> Tuple[bool, str]:
         army_key = self.get_user_army_key(user_id)
@@ -233,7 +243,7 @@ class ArmyManager:
             # Если участников не осталось — расформировываем армию
             del self.armies[army_key]
             self.save_armies()
-            return True, f"🚪 Вы покинули армию «{army_name}». Так как в ней больше никого не осталось, армия расформирована."
+            return True, f"🚪 Вы покинули армию «<b>{html.escape(army_name)}</b>». Так как в ней больше никого не осталось, армия расформирована."
 
         if is_creator:
             # Передаем звание Главнокомандующего старожилу
@@ -242,10 +252,13 @@ class ArmyManager:
             new_leader["rank"] = RANK_CREATOR
             army["creator_id"] = new_leader["user_id"]
             self.save_armies()
-            return True, f"🚪 Вы покинули армию «{army_name}».\n👑 Полномочия **{RANK_CREATOR}** переданы бойцу **{new_leader['name']}**."
+            return True, (
+                f"🚪 Вы покинули армию «<b>{html.escape(army_name)}</b>».\n"
+                f"👑 Полномочия <b>{html.escape(RANK_CREATOR)}</b> переданы бойцу <b>{html.escape(new_leader['name'])}</b>."
+            )
 
         self.save_armies()
-        return True, f"🚪 Вы успешно покинули армию «{army_name}»."
+        return True, f"🚪 Вы успешно покинули армию «<b>{html.escape(army_name)}</b>»."
 
     def disband_army(self, user_id: int) -> Tuple[bool, str]:
         army_key = self.get_user_army_key(user_id)
@@ -256,7 +269,7 @@ class ArmyManager:
         member_info = army.get("members", {}).get(str(user_id))
 
         if not member_info or member_info.get("rank") != RANK_CREATOR:
-            return False, f"❌ Расформировать армию может только **{RANK_CREATOR}**!"
+            return False, f"❌ Расформировать армию может только <b>{html.escape(RANK_CREATOR)}</b>!"
 
         army_name = army["name"]
         members = army.get("members", {})
@@ -268,7 +281,7 @@ class ArmyManager:
         del self.armies[army_key]
         self.save_armies()
 
-        return True, f"💥 Армия «{army_name}» была расформирована Главнокомандующим."
+        return True, f"💥 Армия «<b>{html.escape(army_name)}</b>» была расформирована Главнокомандующим."
 
     def get_all_armies(self) -> List[dict]:
         return list(self.armies.values())

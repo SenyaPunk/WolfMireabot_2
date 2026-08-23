@@ -1,5 +1,6 @@
 """Команды для управления армиями и войсками."""
 import datetime
+import html
 import logging
 from aiogram import Router
 from aiogram.filters import Command
@@ -28,17 +29,17 @@ async def create_army_cmd(message: Message):
     
     if len(parts) < 2:
         await message.reply(
-            f"⚠️ **Использование:** `/создать_армию [Название] [Численность]`\n\n"
-            f"💡 *Пример:* `/создать_армию Спарта 15`\n"
-            f"💰 *Стоимость создания:* **{int(CREATE_ARMY_COST)} монет**",
-            parse_mode="Markdown"
+            f"⚠️ <b>Использование:</b> <code>/создать_армию [Название] [Численность]</code>\n\n"
+            f"💡 <i>Пример:</i> <code>/создать_армию Спарта 15</code>\n"
+            f"💰 <i>Стоимость создания:</i> <b>{int(CREATE_ARMY_COST)} монет</b>",
+            parse_mode="HTML"
         )
         return
 
     if not parts[-1].isdigit():
         await message.reply(
-            "❌ Численность армии должна быть целым числом! (Пример: `/создать_армию Спарта 15`)",
-            parse_mode="Markdown"
+            "❌ Численность армии должна быть целым числом! (Пример: <code>/создать_армию Спарта 15</code>)",
+            parse_mode="HTML"
         )
         return
 
@@ -53,7 +54,7 @@ async def create_army_cmd(message: Message):
         max_members=max_members
     )
 
-    await message.reply(result_msg, parse_mode="Markdown")
+    await message.reply(result_msg, parse_mode="HTML")
 
 
 @router.message(Command("join_army", "вступить_в_армию", "армия_вступить", "войти_в_армию"))
@@ -63,9 +64,9 @@ async def join_army_cmd(message: Message):
     
     if not parts:
         await message.reply(
-            "⚠️ **Использование:** `/вступить_в_армию [Название армии]`\n\n"
-            "💡 *Пример:* `/вступить_в_армию Спарта`",
-            parse_mode="Markdown"
+            "⚠️ <b>Использование:</b> <code>/вступить_в_армию [Название армии]</code>\n\n"
+            "💡 <i>Пример:</i> <code>/вступить_в_армию Спарта</code>",
+            parse_mode="HTML"
         )
         return
 
@@ -78,7 +79,7 @@ async def join_army_cmd(message: Message):
         army_name=army_name
     )
 
-    await message.reply(result_msg, parse_mode="Markdown")
+    await message.reply(result_msg, parse_mode="HTML")
 
 
 @router.message(Command("my_army", "моя_армия", "армия"))
@@ -89,13 +90,13 @@ async def my_army_cmd(message: Message):
 
     if not army or not member_info:
         await message.reply(
-            "🪖 **Вы не состоите ни в одной армии.**\n\n"
-            f"👑 Вы можете создать свою армию за **{int(CREATE_ARMY_COST)} монет**:\n"
-            "• `/создать_армию [Название] [Численность]`\n\n"
+            "🪖 <b>Вы не состоите ни в одной армии.</b>\n\n"
+            f"👑 Вы можете создать свою армию за <b>{int(CREATE_ARMY_COST)} монет</b>:\n"
+            "• <code>/создать_армию [Название] [Численность]</code>\n\n"
             "🎖️ Или вступить в чужую армию:\n"
-            "• `/вступить_в_армию [Название]`\n\n"
-            "📋 Список всех армий: `/армии`",
-            parse_mode="Markdown"
+            "• <code>/вступить_в_армию [Название]</code>\n\n"
+            "📋 Список всех армий: /армии",
+            parse_mode="HTML"
         )
         return
 
@@ -111,23 +112,23 @@ async def my_army_cmd(message: Message):
         rank = m.get("rank", RANK_DEFAULT)
         name = m.get("name", "Боец")
         icon = "👑" if rank == RANK_CREATOR else "🎖️"
-        members_list_str.append(f"{idx}. {icon} **{name}** — _{rank}_")
+        members_list_str.append(f"{idx}. {icon} <b>{html.escape(name)}</b> — <i>{html.escape(rank)}</i>")
 
     members_text = "\n".join(members_list_str)
 
     msg_text = (
-        f"🪖 **Вооружённые Силы «{army['name']}»**\n\n"
-        f"👥 **Состав:** {len(members)}/{army['max_members']} чел.\n"
-        f"📅 **Основана:** {created_date}\n\n"
-        f"🎖️ **Личный состав:**\n{members_text}\n\n"
-        f"💡 *Ваше звание:* **{member_info.get('rank', RANK_DEFAULT)}**\n"
-        f"🚪 *Покинуть армию:* `/покинуть_армию`"
+        f"🪖 <b>Вооружённые Силы «{html.escape(army['name'])}»</b>\n\n"
+        f"👥 <b>Состав:</b> {len(members)}/{army['max_members']} чел.\n"
+        f"📅 <b>Основана:</b> {created_date}\n\n"
+        f"🎖️ <b>Личный состав:</b>\n{members_text}\n\n"
+        f"💡 <i>Ваше звание:</i> <b>{html.escape(member_info.get('rank', RANK_DEFAULT))}</b>\n"
+        f"🚪 <i>Покинуть армию:</i> /покинуть_армию"
     )
 
     if member_info.get("rank") == RANK_CREATOR:
-        msg_text += "\n💥 *Расформировать армию:* `/расформировать_армию`"
+        msg_text += "\n💥 <i>Расформировать армию:</i> /расформировать_армию"
 
-    await message.reply(msg_text, parse_mode="Markdown")
+    await message.reply(msg_text, parse_mode="HTML")
 
 
 @router.message(Command("armies", "армии", "список_армий"))
@@ -137,17 +138,17 @@ async def list_armies_cmd(message: Message):
 
     if not armies:
         await message.reply(
-            "🪖 **На данный момент не создано ни одной армии.**\n\n"
-            f"Вы можете стать первым и создать армию за **{int(CREATE_ARMY_COST)} монет**:\n"
-            "• `/создать_армию [Название] [Численность]`",
-            parse_mode="Markdown"
+            "🪖 <b>На данный момент не создано ни одной армии.</b>\n\n"
+            f"Вы можете стать первым и создать армию за <b>{int(CREATE_ARMY_COST)} монет</b>:\n"
+            "• <code>/создать_армию [Название] [Численность]</code>",
+            parse_mode="HTML"
         )
         return
 
     # Сортируем армии по количеству бойцов
     sorted_armies = sorted(armies, key=lambda a: len(a.get("members", {})), reverse=True)
 
-    lines = ["📋 **Список созданных армий:**\n"]
+    lines = ["📋 <b>Список созданных армий:</b>\n"]
     for idx, army in enumerate(sorted_armies, 1):
         name = army.get("name", "Безымянная")
         members_cnt = len(army.get("members", {}))
@@ -161,11 +162,14 @@ async def list_armies_cmd(message: Message):
                 break
 
         status = "🔴 (Заполнена)" if members_cnt >= max_members else f"🟢 ({max_members - members_cnt} мест)"
-        lines.append(f"{idx}. 🪖 **{name}** — {members_cnt}/{max_members} чел. {status}\n   👑 Главнокомандующий: {leader_name}")
+        lines.append(
+            f"{idx}. 🪖 <b>{html.escape(name)}</b> — {members_cnt}/{max_members} чел. {status}\n"
+            f"   👑 Главнокомандующий: <b>{html.escape(leader_name)}</b>"
+        )
 
-    lines.append("\n💡 *Вступить в армию:* `/вступить_в_армию [Название]`")
+    lines.append("\n💡 <i>Вступить в армию:</i> <code>/вступить_в_армию [Название]</code>")
 
-    await message.reply("\n".join(lines), parse_mode="Markdown")
+    await message.reply("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(Command("leave_army", "покинуть_армию", "выйти_из_армии"))
@@ -173,7 +177,7 @@ async def leave_army_cmd(message: Message):
     """Команда для выхода из армии."""
     user_id = message.from_user.id
     success, result_msg = army_manager.leave_army(user_id)
-    await message.reply(result_msg, parse_mode="Markdown")
+    await message.reply(result_msg, parse_mode="HTML")
 
 
 @router.message(Command("disband_army", "расформировать_армию"))
@@ -181,4 +185,4 @@ async def disband_army_cmd(message: Message):
     """Команда для расформирования армии Главнокомандующим."""
     user_id = message.from_user.id
     success, result_msg = army_manager.disband_army(user_id)
-    await message.reply(result_msg, parse_mode="Markdown")
+    await message.reply(result_msg, parse_mode="HTML")
