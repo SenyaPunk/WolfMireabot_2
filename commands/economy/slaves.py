@@ -418,7 +418,7 @@ async def whip_command(message: Message):
         f"━━━━━━━━━━━━━━━━━━━\n\n"
         f"👑 {owner_link} жестоко отхлестал раба {target_link} плеткой! 🩸\n\n"
         f"💸 <i>Теперь каждые 10 минут у {target_link} будет списываться по 5 монет в пользу хозяина, "
-        f"пока раб не поработает (/work, /freelance) или не сыграет в казино (/roulette, /blackjack)!</i>",
+        f"пока раб не поработает (/work) или не сыграет в казино (/roulette, /blackjack)!</i>",
         parse_mode="HTML",
         disable_web_page_preview=True
     )

@@ -47,35 +47,56 @@ async def whip_monitor(bot: Bot):
                     slave_data["last_whip_tax_time"] = now
                     slave_manager.save_slaves()
 
-                    chat_id = slave_data.get("whip_chat_id")
-                    if chat_id:
-                        slave_link = get_user_link(slave_id)
-                        owner_link = get_user_link(owner_id)
+                    # Отправка уведомлений в ЛС рабу и хозяину (в чат не отправляем)
+                    slave_link = get_user_link(slave_id)
+                    owner_link = get_user_link(owner_id)
 
-                        if actual_tax > 0:
-                            msg_text = (
-                                f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"⛓️ С раба {slave_link} списано <b>{actual_tax:.2f}</b> монет и передано хозяину {owner_link}!\n\n"
-                                f"💡 <i>Раб, чтобы прекратить порку, поработайте (/work, /freelance) или сыграйте в казино (/roulette, /blackjack)!</i>"
-                            )
-                        else:
-                            msg_text = (
-                                f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"⛓️ У раба {slave_link} 0 монет на балансе, хозяин {owner_link} ничего не получил!\n\n"
-                                f"💡 <i>Раб, поработайте (/work, /freelance) или сыграйте в казино (/roulette, /blackjack)!</i>"
-                            )
+                    if actual_tax > 0:
+                        slave_msg = (
+                            f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"⛓️ С вашего баланса списано <b>{actual_tax:.2f}</b> монет в пользу хозяина {owner_link}!\n\n"
+                            f"💡 <i>Чтобы прекратить порку, поработайте (/work) или сыграйте в казино (/roulette, /blackjack)!</i>"
+                        )
+                        owner_msg = (
+                            f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"💰 Ваш раб {slave_link} принес вам <b>{actual_tax:.2f}</b> монет по порке!"
+                        )
+                    else:
+                        slave_msg = (
+                            f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"⛓️ У вас 0 монет на балансе, но вы всё еще находитесь под поркой!\n\n"
+                            f"💡 <i>Поработайте (/work) или сыграйте в казино (/roulette, /blackjack), чтобы прекратить порку!</i>"
+                        )
+                        owner_msg = (
+                            f"🩸 <b>ПЛЁТКА В ДЕЙСТВИИ!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"⛓️ У вашего раба {slave_link} 0 монет на балансе, поэтому при порке вы ничего не получили."
+                        )
 
-                        try:
-                            await bot.send_message(
-                                chat_id=chat_id,
-                                text=msg_text,
-                                parse_mode="HTML",
-                                disable_web_page_preview=True
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to send whip tax notification to chat {chat_id}: {e}")
+                    # Безопасная отправка в ЛС рабу
+                    try:
+                        await bot.send_message(
+                            chat_id=slave_id,
+                            text=slave_msg,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True
+                        )
+                    except Exception as e:
+                        logger.debug(f"Could not send DM notification to slave {slave_id}: {e}")
+
+                    # Безопасная отправка в ЛС хозяину
+                    try:
+                        await bot.send_message(
+                            chat_id=owner_id,
+                            text=owner_msg,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True
+                        )
+                    except Exception as e:
+                        logger.debug(f"Could not send DM notification to owner {owner_id}: {e}")
 
         except Exception as e:
             logger.error(f"Ошибка в фоновом мониторе whip_monitor: {e}", exc_info=True)
