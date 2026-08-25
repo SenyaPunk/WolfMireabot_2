@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 from utils.economy_manager import EconomyManager
+from utils.user_link import get_user_link
 
 logger = logging.getLogger(__name__)
 
@@ -252,9 +253,10 @@ class ArmyManager:
             new_leader["rank"] = RANK_CREATOR
             army["creator_id"] = new_leader["user_id"]
             self.save_armies()
+            leader_link = get_user_link(new_leader["user_id"], new_leader.get("name", "").lstrip("@"))
             return True, (
                 f"🚪 Вы покинули армию «<b>{html.escape(army_name)}</b>».\n"
-                f"👑 Полномочия <b>{html.escape(RANK_CREATOR)}</b> переданы бойцу <b>{html.escape(new_leader['name'])}</b>."
+                f"👑 Полномочия <b>{html.escape(RANK_CREATOR)}</b> переданы бойцу {leader_link}."
             )
 
         self.save_armies()

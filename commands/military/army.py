@@ -7,6 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from utils.army_manager import ArmyManager, CREATE_ARMY_COST, RANK_CREATOR, RANK_DEFAULT
+from utils.user_link import get_user_link
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -17,8 +18,6 @@ def get_user_display_name(message: Message) -> str:
     user = message.from_user
     if not user:
         return "Неизвестный боец"
-    if user.username:
-        return f"@{user.username}"
     return user.full_name or user.first_name or f"ID {user.id}"
 
 
@@ -110,9 +109,15 @@ async def my_army_cmd(message: Message):
     
     for idx, m in enumerate(sorted_m, 1):
         rank = m.get("rank", RANK_DEFAULT)
-        name = m.get("name", "Боец")
+        mid = m.get("user_id")
+        if mid:
+            user_link = get_user_link(int(mid))
+        else:
+            raw_name = m.get("name", "Боец").lstrip("@")
+            user_link = html.escape(raw_name)
+            
         icon = "👑" if rank == RANK_CREATOR else "🎖️"
-        members_list_str.append(f"{idx}. {icon} <b>{html.escape(name)}</b> — <i>{html.escape(rank)}</i>")
+        members_list_str.append(f"{idx}. {icon} {user_link} — <i>{html.escape(rank)}</i>")
 
     members_text = "\n".join(members_list_str)
 
@@ -128,7 +133,7 @@ async def my_army_cmd(message: Message):
     if member_info.get("rank") == RANK_CREATOR:
         msg_text += "\n💥 <i>Расформировать армию:</i> /расформировать_армию"
 
-    await message.reply(msg_text, parse_mode="HTML")
+    await message.reply(msg_text, parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(Command("armies", "армии", "список_армий"))
@@ -155,21 +160,25 @@ async def list_armies_cmd(message: Message):
         max_members = army.get("max_members", 10)
         
         # Находим Главнокомандующего
-        leader_name = "Неизвестен"
+        leader_link = "Неизвестен"
         for m in army.get("members", {}).values():
             if m.get("rank") == RANK_CREATOR:
-                leader_name = m.get("name", "Неизвестен")
+                uid = m.get("user_id")
+                if uid:
+                    leader_link = get_user_link(int(uid))
+                else:
+                    leader_link = html.escape(m.get("name", "Неизвестен").lstrip("@"))
                 break
 
         status = "🔴 (Заполнена)" if members_cnt >= max_members else f"🟢 ({max_members - members_cnt} мест)"
         lines.append(
             f"{idx}. 🪖 <b>{html.escape(name)}</b> — {members_cnt}/{max_members} чел. {status}\n"
-            f"   👑 Главнокомандующий: <b>{html.escape(leader_name)}</b>"
+            f"   👑 Главнокомандующий: {leader_link}"
         )
 
     lines.append("\n💡 <i>Вступить в армию:</i> <code>/вступить_в_армию [Название]</code>")
 
-    await message.reply("\n".join(lines), parse_mode="HTML")
+    await message.reply("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(Command("leave_army", "покинуть_армию", "выйти_из_армии"))
@@ -177,7 +186,7 @@ async def leave_army_cmd(message: Message):
     """Команда для выхода из армии."""
     user_id = message.from_user.id
     success, result_msg = army_manager.leave_army(user_id)
-    await message.reply(result_msg, parse_mode="HTML")
+    await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(Command("disband_army", "расформировать_армию"))
@@ -185,4 +194,4 @@ async def disband_army_cmd(message: Message):
     """Команда для расформирования армии Главнокомандующим."""
     user_id = message.from_user.id
     success, result_msg = army_manager.disband_army(user_id)
-    await message.reply(result_msg, parse_mode="HTML")
+    await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
