@@ -11,7 +11,7 @@ from utils.slave_manager import SlaveManager
 from utils.cooldown_manager import CooldownManager
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
-from utils.slots_generator import generate_slots_gif, SYMBOLS
+from utils.slots_generator import generate_slots_gif, SYMBOLS, SYMBOL_WEIGHTS
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -407,10 +407,8 @@ async def run_spin_game(bot: Bot, callback_query: CallbackQuery, user_id: int, b
             
         cooldown_manager.set_data(data_key, data)
         
-        # Выбираем 3 случайных символа
-        s1 = random.randint(0, 7)
-        s2 = random.randint(0, 7)
-        s3 = random.randint(0, 7)
+        # Выбираем 3 случайных символа с учетом настроенных вероятностей барабанов
+        s1, s2, s3 = random.choices(range(len(SYMBOLS)), weights=SYMBOL_WEIGHTS, k=3)
 
         # Проверка на наличие "Буста шансов в казино"
         from utils.donation_manager import DonationManager
