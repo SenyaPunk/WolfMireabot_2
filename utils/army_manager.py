@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import queue
+import random
 import threading
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 CREATE_ARMY_COST = 700.0
 RANK_CREATOR = "Главнокомандующий"
+RANK_MOBILIZED = "Штурмовик"
 RANK_DEFAULT = "Рядовой"
 
 
@@ -284,6 +286,95 @@ class ArmyManager:
         self.save_armies()
 
         return True, f"💥 Армия «<b>{html.escape(army_name)}</b>» была расформирована Главнокомандующим."
+
+    def mobilize_members(self, commander_id: int, count: int) -> Tuple[bool, str, List[dict]]:
+        """
+        Объявляет мобилизацию в армии: случайным образом переводит указанное число
+        рядовых в ранг Штурмовиков для будущих боевых действий.
+        """
+        army_key = self.get_user_army_key(commander_id)
+        if not army_key or army_key not in self.armies:
+            return False, "❌ Вы не состоите ни в одной армии.", []
+
+        army = self.armies[army_key]
+        commander_info = army.get("members", {}).get(str(commander_id))
+
+        if not commander_info or commander_info.get("rank") != RANK_CREATOR:
+            return False, f"❌ Объявлять мобилизацию может только <b>{html.escape(RANK_CREATOR)}</b>!", []
+
+        if count <= 0:
+            return False, "❌ Количество мобилизуемых бойцов должно быть больше 0!", []
+
+        members = army.get("members", {})
+        available_privates = [
+            m for m in members.values()
+            if m.get("rank") == RANK_DEFAULT
+        ]
+
+        if not available_privates:
+            return False, (
+                f"❌ В армии «<b>{html.escape(army['name'])}</b>» нет доступных рядовых для мобилизации!\n"
+                f"💡 Все бойцы уже на передке либо армия состоит только из командования."
+            ), []
+
+        if count > len(available_privates):
+            return False, (
+                f"⚠️ Недостаточно рядовых для мобилизации!\n"
+                f"В тыловом резерве доступно: <b>{len(available_privates)} чел.</b>\n"
+                f"Укажите число от 1 до <b>{len(available_privates)}</b>."
+            ), []
+
+        # Случайный отбор бойцов
+        chosen = random.sample(available_privates, count)
+        now = time.time()
+        for member in chosen:
+            member["rank"] = RANK_MOBILIZED
+            member["mobilized_at"] = now
+            member["status"] = "frontline"
+
+        self.save_armies()
+        return True, "Успешно", chosen
+
+    def demobilize_members(self, commander_id: int, count: Optional[int] = None) -> Tuple[bool, str, List[dict]]:
+        """
+        Демобилизация: возвращает штурмовиков с передка обратно в резерв (статус Рядовой).
+        Если count is None — демобилизует всех штурмовиков.
+        """
+        army_key = self.get_user_army_key(commander_id)
+        if not army_key or army_key not in self.armies:
+            return False, "❌ Вы не состоите ни в одной армии.", []
+
+        army = self.armies[army_key]
+        commander_info = army.get("members", {}).get(str(commander_id))
+
+        if not commander_info or commander_info.get("rank") != RANK_CREATOR:
+            return False, f"❌ Демобилизацию может проводить только <b>{html.escape(RANK_CREATOR)}</b>!", []
+
+        members = army.get("members", {})
+        mobilized = [
+            m for m in members.values()
+            if m.get("rank") == RANK_MOBILIZED
+        ]
+
+        if not mobilized:
+            return False, f"❌ В армии «<b>{html.escape(army['name'])}</b>» нет мобилизованных штурмовиков на передке.", []
+
+        if count is None or count >= len(mobilized):
+            to_demobilize = mobilized
+        elif count <= 0:
+            return False, "❌ Количество для демобилизации должно быть больше 0!", []
+        else:
+            # Демобилизуем первыми тех, кто дольше всех на передке
+            sorted_mob = sorted(mobilized, key=lambda x: x.get("mobilized_at", 0))
+            to_demobilize = sorted_mob[:count]
+
+        for member in to_demobilize:
+            member["rank"] = RANK_DEFAULT
+            member.pop("status", None)
+            member.pop("mobilized_at", None)
+
+        self.save_armies()
+        return True, "Успешно", to_demobilize
 
     def get_all_armies(self) -> List[dict]:
         return list(self.armies.values())

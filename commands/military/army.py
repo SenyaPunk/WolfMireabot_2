@@ -6,7 +6,13 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from utils.army_manager import ArmyManager, CREATE_ARMY_COST, RANK_CREATOR, RANK_DEFAULT
+from utils.army_manager import (
+    ArmyManager,
+    CREATE_ARMY_COST,
+    RANK_CREATOR,
+    RANK_MOBILIZED,
+    RANK_DEFAULT
+)
 from utils.user_link import get_user_link
 
 router = Router()
@@ -103,9 +109,20 @@ async def my_army_cmd(message: Message):
     created_at = army.get("created_at", 0)
     created_date = datetime.datetime.fromtimestamp(created_at).strftime("%d.%m.%Y %H:%M") if created_at else "Неизвестно"
     
+    mobilized_cnt = sum(1 for m in members.values() if m.get("rank") == RANK_MOBILIZED)
+    privates_cnt = sum(1 for m in members.values() if m.get("rank") == RANK_DEFAULT)
+
     members_list_str = []
-    # Сортируем: сначала Главнокомандующий, затем остальной состав
-    sorted_m = sorted(members.values(), key=lambda x: (0 if x.get("rank") == RANK_CREATOR else 1, x.get("joined_at", 0)))
+    # Сортируем: сначала Главнокомандующий (0), затем Штурмовики на передке (1), затем Рядовые (2)
+    def rank_sort_order(m):
+        r = m.get("rank")
+        if r == RANK_CREATOR:
+            return 0
+        elif r == RANK_MOBILIZED:
+            return 1
+        return 2
+
+    sorted_m = sorted(members.values(), key=lambda x: (rank_sort_order(x), x.get("joined_at", 0)))
     
     for idx, m in enumerate(sorted_m, 1):
         rank = m.get("rank", RANK_DEFAULT)
@@ -116,7 +133,13 @@ async def my_army_cmd(message: Message):
             raw_name = m.get("name", "Боец").lstrip("@")
             user_link = html.escape(raw_name)
             
-        icon = "👑" if rank == RANK_CREATOR else "🎖️"
+        if rank == RANK_CREATOR:
+            icon = "👑"
+        elif rank == RANK_MOBILIZED:
+            icon = "⚔️"
+        else:
+            icon = "🎖️"
+
         members_list_str.append(f"{idx}. {icon} {user_link} — <i>{html.escape(rank)}</i>")
 
     members_text = "\n".join(members_list_str)
@@ -124,14 +147,21 @@ async def my_army_cmd(message: Message):
     msg_text = (
         f"🪖 <b>Вооружённые Силы «{html.escape(army['name'])}»</b>\n\n"
         f"👥 <b>Состав:</b> {len(members)}/{army['max_members']} чел.\n"
+        f"⚔️ <b>Штурмовиков на передке:</b> {mobilized_cnt} чел.\n"
+        f"🎖️ <b>В тыловом резерве:</b> {privates_cnt} чел.\n"
         f"📅 <b>Основана:</b> {created_date}\n\n"
-        f"🎖️ <b>Личный состав:</b>\n{members_text}\n\n"
+        f"📋 <b>Личный состав:</b>\n{members_text}\n\n"
         f"💡 <i>Ваше звание:</i> <b>{html.escape(member_info.get('rank', RANK_DEFAULT))}</b>\n"
         f"🚪 <i>Покинуть армию:</i> /покинуть_армию"
     )
 
     if member_info.get("rank") == RANK_CREATOR:
-        msg_text += "\n💥 <i>Расформировать армию:</i> /расформировать_армию"
+        msg_text += (
+            "\n\n⚙️ <b>Панель Главнокомандующего:</b>\n"
+            "• <code>/мобилизация [число]</code> — отправить рядовых на передок\n"
+            "• <code>/демобилизация [число|все]</code> — вернуть бойцов в резерв\n"
+            "• /расформировать_армию — ликвидировать армию"
+        )
 
     await message.reply(msg_text, parse_mode="HTML", disable_web_page_preview=True)
 
@@ -195,3 +225,101 @@ async def disband_army_cmd(message: Message):
     user_id = message.from_user.id
     success, result_msg = army_manager.disband_army(user_id)
     await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("mobilize", "мобилизация", "призыв", "повестка"))
+async def mobilize_cmd(message: Message):
+    """Команда для объявления мобилизации Главнокомандующим."""
+    user_id = message.from_user.id
+    parts = message.text.split()[1:]
+
+    if not parts:
+        await message.reply(
+            "⚠️ <b>Использование:</b> <code>/мобилизация [число_необходимых]</code>\n\n"
+            "💡 <i>Пример:</i> <code>/мобилизация 3</code>\n"
+            "🎖️ Случайным образом отправляет указанное число рядовых в штурмовики на передок.",
+            parse_mode="HTML"
+        )
+        return
+
+    if not parts[0].isdigit():
+        await message.reply(
+            "❌ Количество бойцов для мобилизации должно быть целым положительным числом! (Пример: <code>/мобилизация 3</code>)",
+            parse_mode="HTML"
+        )
+        return
+
+    count = int(parts[0])
+    success, result_msg, mobilized_members = army_manager.mobilize_members(user_id, count)
+
+    if not success:
+        await message.reply(result_msg, parse_mode="HTML")
+        return
+
+    army, _ = army_manager.get_user_army(user_id)
+    army_name = army["name"] if army else "армии"
+
+    recruits_lines = []
+    for idx, m in enumerate(mobilized_members, 1):
+        mid = m.get("user_id")
+        user_link = get_user_link(int(mid)) if mid else html.escape(m.get("name", "Боец").lstrip("@"))
+        recruits_lines.append(f"{idx}. ⚔️ {user_link} — <b>отправлен на передок (Штурмовик)</b>")
+
+    recruits_text = "\n".join(recruits_lines)
+
+    response_text = (
+        f"🚨 <b>ВНИМАНИЕ! ОБЪЯВЛЕНА МОБИЛИЗАЦИЯ!</b> 🚨\n\n"
+        f"👑 Главнокомандующий вооружённых сил «<b>{html.escape(army_name)}</b>» подписал указ о мобилизации <b>{len(mobilized_members)}</b> бойцов на передовую!\n\n"
+        f"🎯 <b>Список мобилизованных штурмовиков:</b>\n"
+        f"{recruits_text}\n\n"
+        f"🫡 Родина вас не забудет, бойцы! Готовьтесь к предстоящим боевым действиям на СВО!"
+    )
+
+    await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("demobilize", "демобилизация", "ротация"))
+async def demobilize_cmd(message: Message):
+    """Команда для демобилизации бойцов с передовой обратно в резерв."""
+    user_id = message.from_user.id
+    parts = message.text.split()[1:]
+
+    count = None
+    if parts:
+        if parts[0].lower() in ("все", "all", "всё"):
+            count = None
+        elif parts[0].isdigit():
+            count = int(parts[0])
+        else:
+            await message.reply(
+                "⚠️ <b>Использование:</b> <code>/демобилизация [число | все]</code>\n\n"
+                "💡 <i>Пример:</i> <code>/демобилизация 2</code> или <code>/демобилизация все</code>",
+                parse_mode="HTML"
+            )
+            return
+
+    success, result_msg, demobilized_members = army_manager.demobilize_members(user_id, count)
+
+    if not success:
+        await message.reply(result_msg, parse_mode="HTML")
+        return
+
+    army, _ = army_manager.get_user_army(user_id)
+    army_name = army["name"] if army else "армии"
+
+    demob_lines = []
+    for idx, m in enumerate(demobilized_members, 1):
+        mid = m.get("user_id")
+        user_link = get_user_link(int(mid)) if mid else html.escape(m.get("name", "Боец").lstrip("@"))
+        demob_lines.append(f"{idx}. 🎖️ {user_link} — возвращён в тыловой резерв (Рядовой)")
+
+    demob_text = "\n".join(demob_lines)
+
+    response_text = (
+        f"🔄 <b>Проведена ротация и демобилизация!</b>\n\n"
+        f"В армии «<b>{html.escape(army_name)}</b>» <b>{len(demobilized_members)}</b> бойцов возвращены с передовой в резерв:\n\n"
+        f"{demob_text}\n\n"
+        f"☕ Отдыхайте, бойцы, до следующего приказа Главнокомандующего."
+    )
+
+    await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True)
