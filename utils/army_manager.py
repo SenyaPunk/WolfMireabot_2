@@ -235,6 +235,14 @@ class ArmyManager:
             self.save_armies()
             return False, "❌ Вы не являетесь участником этой армии."
 
+        if member_info.get("rank") == RANK_MOBILIZED:
+            return False, (
+                "🚫 <b>Дезертирство карается по законам военного времени!</b>\n\n"
+                "⚔️ Вы мобилизованы в штурмовой отряд и находитесь на передке. "
+                "Вы не можете самовольно покинуть армию!\n"
+                "💡 Только <b>Главнокомандующий</b> может объявить вашу демобилизацию (<code>/демобилизация</code>)."
+            )
+
         is_creator = (member_info.get("rank") == RANK_CREATOR or army.get("creator_id") == user_id)
 
         del members[str(user_id)]

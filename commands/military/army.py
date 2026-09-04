@@ -144,6 +144,12 @@ async def my_army_cmd(message: Message):
 
     members_text = "\n".join(members_list_str)
 
+    user_rank = member_info.get('rank', RANK_DEFAULT)
+    if user_rank == RANK_MOBILIZED:
+        exit_line = "⚔️ <i>Статус:</i> <b>На передке (самовольный выход запрещён)</b>"
+    else:
+        exit_line = "🚪 <i>Покинуть армию:</i> /покинуть_армию"
+
     msg_text = (
         f"🪖 <b>Вооружённые Силы «{html.escape(army['name'])}»</b>\n\n"
         f"👥 <b>Состав:</b> {len(members)}/{army['max_members']} чел.\n"
@@ -151,8 +157,8 @@ async def my_army_cmd(message: Message):
         f"🎖️ <b>В тыловом резерве:</b> {privates_cnt} чел.\n"
         f"📅 <b>Основана:</b> {created_date}\n\n"
         f"📋 <b>Личный состав:</b>\n{members_text}\n\n"
-        f"💡 <i>Ваше звание:</i> <b>{html.escape(member_info.get('rank', RANK_DEFAULT))}</b>\n"
-        f"🚪 <i>Покинуть армию:</i> /покинуть_армию"
+        f"💡 <i>Ваше звание:</i> <b>{html.escape(user_rank)}</b>\n"
+        f"{exit_line}"
     )
 
     if member_info.get("rank") == RANK_CREATOR:
