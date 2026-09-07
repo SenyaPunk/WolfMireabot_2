@@ -94,6 +94,13 @@ class ArmyManager:
                     self.armies = data.get("armies", {})
                     raw_map = data.get("user_army_map", {})
                     self.user_army_map = {int(k): v for k, v in raw_map.items()}
+                    # Гарантируем наличие полей для СВО, казны и пленных
+                    for army in self.armies.values():
+                        army.setdefault("bank", 0.0)
+                        army.setdefault("drones", 0)
+                        army.setdefault("prisoners", [])
+                        army.setdefault("active_war_id", None)
+                        army.setdefault("war_stats", {"wins": 0, "losses": 0, "captures": 0, "total_looted": 0.0})
                     logger.info(f"Загружено {len(self.armies)} армий из {self.armies_file}")
             else:
                 logger.info(f"Файл армий {self.armies_file} не найден, создаем новый")
@@ -169,7 +176,15 @@ class ArmyManager:
                 }
             },
             "drones": 0,
-            "bank": 0,
+            "bank": 0.0,
+            "prisoners": [],
+            "active_war_id": None,
+            "war_stats": {
+                "wins": 0,
+                "losses": 0,
+                "captures": 0,
+                "total_looted": 0.0
+            },
             "battles_won": 0,
             "battles_lost": 0
         }
@@ -227,6 +242,16 @@ class ArmyManager:
             return False, "❌ Вы не состоите ни в одной армии."
 
         army = self.armies[army_key]
+        if army.get("active_war_id"):
+            return False, "⚔️ <b>Ваша армия сейчас ведёт боевые действия на СВО!</b> Выход из армии во время войны строго запрещён."
+
+        # Проверка, не находится ли боец во вражеском плену
+        is_pow, captor_key, _ = self.is_user_prisoner(user_id)
+        if is_pow:
+            captor_army = self.armies.get(captor_key, {})
+            c_name = captor_army.get("name", "вражеской армии")
+            return False, f"⛓️ <b>Вы находитесь в плену у армии «{html.escape(c_name)}»!</b> Сначала вас должны освободить или выкупить."
+
         members = army.get("members", {})
         member_info = members.get(str(user_id))
 
@@ -278,6 +303,9 @@ class ArmyManager:
             return False, "❌ Вы не состоите ни в одной армии."
 
         army = self.armies[army_key]
+        if army.get("active_war_id"):
+            return False, "⚔️ <b>Нельзя расформировать армию во время активной СВО!</b> Завершите или капитулируйте в операции."
+
         member_info = army.get("members", {}).get(str(user_id))
 
         if not member_info or member_info.get("rank") != RANK_CREATOR:
@@ -386,3 +414,175 @@ class ArmyManager:
 
     def get_all_armies(self) -> List[dict]:
         return list(self.armies.values())
+
+    def is_user_prisoner(self, user_id: int) -> Tuple[bool, Optional[str], Optional[dict]]:
+        """
+        Проверяет, находится ли боец в плену у какой-либо армии.
+        Возвращает (is_prisoner, captor_army_key, prisoner_data).
+        """
+        for army_key, army in self.armies.items():
+            for p in army.get("prisoners", []):
+                if p.get("user_id") == user_id:
+                    return True, army_key, p
+        return False, None, None
+
+    def get_prisoners(self, army_key: str) -> List[dict]:
+        """Возвращает список военнопленных армии."""
+        army = self.armies.get(army_key)
+        if not army:
+            return []
+        return army.get("prisoners", [])
+
+    def add_prisoner(self, captor_army_key: str, prisoner: dict) -> bool:
+        """Добавляет военнопленного в армию-захватчик."""
+        army = self.armies.get(captor_army_key)
+        if not army:
+            return False
+        prisoners = army.setdefault("prisoners", [])
+        # Проверяем, нет ли его уже
+        if not any(p.get("user_id") == prisoner.get("user_id") for p in prisoners):
+            prisoners.append(prisoner)
+            self.save_armies()
+            return True
+        return False
+
+    def release_prisoner(self, commander_id: int, prisoner_id: int) -> Tuple[bool, str, Optional[dict]]:
+        """Главнокомандующий отпускает военнопленного на волю."""
+        army_key = self.get_user_army_key(commander_id)
+        if not army_key:
+            return False, "❌ Вы не состоите в армии.", None
+
+        army = self.armies.get(army_key)
+        commander_info = army.get("members", {}).get(str(commander_id))
+        if not commander_info or commander_info.get("rank") != RANK_CREATOR:
+            return False, f"❌ Освобождать военнопленных может только <b>{html.escape(RANK_CREATOR)}</b>!", None
+
+        prisoners = army.get("prisoners", [])
+        target = None
+        for p in prisoners:
+            if p.get("user_id") == prisoner_id:
+                target = p
+                break
+
+        if not target:
+            return False, "❌ Военнопленный с таким ID не найден в застенках вашей армии.", None
+
+        prisoners.remove(target)
+        self.save_armies()
+        return True, f"🕊️ Военнопленный <b>{html.escape(target.get('name', 'Боец'))}</b> был отпущен на свободу по приказу Главкома.", target
+
+    def ransom_prisoner(self, payer_id: int, prisoner_id: int, amount: float) -> Tuple[bool, str, Optional[dict]]:
+        """
+        Выкуп военнопленного из плена чужой армии за монеты.
+        Деньги переводятся в казну удерживающей армии.
+        """
+        is_pow, captor_key, prisoner_info = self.is_user_prisoner(prisoner_id)
+        if not is_pow or not captor_key or not prisoner_info:
+            return False, "❌ Этот боец не числится в списках военнопленных.", None
+
+        captor_army = self.armies.get(captor_key)
+        if not captor_army:
+            return False, "❌ Ошибка: армия-захватчик не найдена.", None
+
+        if amount <= 0:
+            return False, "❌ Сумма выкупа должна быть положительной!", None
+
+        payer_balance = self.economy_manager.get_balance(payer_id)
+        if payer_balance < amount:
+            return False, f"❌ Недостаточно средств для выкупа! Требуется <b>{amount:.2f} монет</b> (у вас: <b>{payer_balance:.2f}</b>).", None
+
+        # Списываем у плательщика и начисляем в казну удерживающей армии
+        self.economy_manager.remove_money(payer_id, amount)
+        captor_army["bank"] = captor_army.get("bank", 0.0) + amount
+
+        # Удаляем из пленных
+        captor_army.get("prisoners", []).remove(prisoner_info)
+        self.save_armies()
+
+        return True, (
+            f"🤝 <b>Выкуп успешно выплачен!</b>\n"
+            f"Боец <b>{html.escape(prisoner_info.get('name', 'Боец'))}</b> освобождён из плена армии «<b>{html.escape(captor_army['name'])}</b>»!\n"
+            f"💰 В казну захватчиков поступило: <b>{amount:.2f} монет</b>."
+        ), prisoner_info
+
+    def deposit_to_bank(self, user_id: int, amount: float) -> Tuple[bool, str]:
+        """Пополнение казны армии бойцом."""
+        if amount <= 0:
+            return False, "❌ Сумма пополнения должна быть больше 0!"
+
+        army_key = self.get_user_army_key(user_id)
+        if not army_key:
+            return False, "❌ Вы не состоите ни в одной армии."
+
+        balance = self.economy_manager.get_balance(user_id)
+        if balance < amount:
+            return False, f"❌ Недостаточно монет на балансе (у вас <b>{balance:.2f} монет</b>)."
+
+        army = self.armies.get(army_key)
+        self.economy_manager.remove_money(user_id, amount)
+        army["bank"] = army.get("bank", 0.0) + amount
+        self.save_armies()
+
+        return True, (
+            f"🏦 <b>Казна армии «{html.escape(army['name'])}» пополнена!</b>\n"
+            f"💰 Внесено: <b>{amount:.2f} монет</b>\n"
+            f"💳 Общий баланс казны: <b>{army['bank']:.2f} монет</b>"
+        )
+
+    def withdraw_from_bank(self, commander_id: int, amount: float) -> Tuple[bool, str]:
+        """Снятие средств из казны Главкомом."""
+        if amount <= 0:
+            return False, "❌ Сумма снятия должна быть больше 0!"
+
+        army_key = self.get_user_army_key(commander_id)
+        if not army_key:
+            return False, "❌ Вы не состоите в армии."
+
+        army = self.armies.get(army_key)
+        member_info = army.get("members", {}).get(str(commander_id))
+        if not member_info or member_info.get("rank") != RANK_CREATOR:
+            return False, f"❌ Снимать средства из казны может только <b>{html.escape(RANK_CREATOR)}</b>!"
+
+        current_bank = army.get("bank", 0.0)
+        if current_bank < amount:
+            return False, f"❌ В казне армии недостаточно средств! Доступно: <b>{current_bank:.2f} монет</b>."
+
+        army["bank"] = current_bank - amount
+        self.economy_manager.add_money(commander_id, amount)
+        self.save_armies()
+
+        return True, (
+            f"💸 <b>Средства выведены из казны армии!</b>\n"
+            f"💰 Получено: <b>{amount:.2f} монет</b>\n"
+            f"💳 Остаток в казне: <b>{army['bank']:.2f} монет</b>"
+        )
+
+    def set_active_war(self, army_key: str, war_id: Optional[str]):
+        """Устанавливает или сбрасывает ID активной СВО для армии."""
+        army = self.armies.get(army_key)
+        if army:
+            army["active_war_id"] = war_id
+            self.save_armies()
+
+    def record_war_result(self, winner_key: str, loser_key: str, looted_amount: float, prisoners_count: int):
+        """Записывает результаты СВО в статистику обеих армий."""
+        winner = self.armies.get(winner_key)
+        loser = self.armies.get(loser_key)
+
+        if winner:
+            winner["battles_won"] = winner.get("battles_won", 0) + 1
+            w_stats = winner.setdefault("war_stats", {"wins": 0, "losses": 0, "captures": 0, "total_looted": 0.0})
+            w_stats["wins"] = w_stats.get("wins", 0) + 1
+            w_stats["captures"] = w_stats.get("captures", 0) + prisoners_count
+            w_stats["total_looted"] = w_stats.get("total_looted", 0.0) + looted_amount
+            winner["bank"] = winner.get("bank", 0.0) + looted_amount
+            winner["active_war_id"] = None
+
+        if loser:
+            loser["battles_lost"] = loser.get("battles_lost", 0) + 1
+            l_stats = loser.setdefault("war_stats", {"wins": 0, "losses": 0, "captures": 0, "total_looted": 0.0})
+            l_stats["losses"] = l_stats.get("losses", 0) + 1
+            loser["bank"] = max(0.0, loser.get("bank", 0.0) - looted_amount)
+            loser["active_war_id"] = None
+
+        self.save_armies()

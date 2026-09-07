@@ -145,16 +145,31 @@ async def my_army_cmd(message: Message):
     members_text = "\n".join(members_list_str)
 
     user_rank = member_info.get('rank', RANK_DEFAULT)
-    if user_rank == RANK_MOBILIZED:
+    is_pow, captor_key, pow_info = army_manager.is_user_prisoner(user_id)
+    
+    if is_pow:
+        captor_army = army_manager.armies.get(captor_key, {})
+        exit_line = f"⛓️ <i>Статус:</i> <b>В плену у армии «{html.escape(captor_army.get('name', 'врага'))}»!</b> (Ожидайте освобождения или выкупа)"
+    elif user_rank == RANK_MOBILIZED:
         exit_line = "⚔️ <i>Статус:</i> <b>На передке (самовольный выход запрещён)</b>"
     else:
         exit_line = "🚪 <i>Покинуть армию:</i> /покинуть_армию"
+
+    bank = army.get("bank", 0.0)
+    prisoners_cnt = len(army.get("prisoners", []))
+    w_stats = army.get("war_stats", {})
+    active_war_id = army.get("active_war_id")
+    war_status_str = "⚔️ <b>ИДЁТ СВО!</b> (Сводка: /сводка)" if active_war_id else "🕊️ Мирное время"
 
     msg_text = (
         f"🪖 <b>Вооружённые Силы «{html.escape(army['name'])}»</b>\n\n"
         f"👥 <b>Состав:</b> {len(members)}/{army['max_members']} чел.\n"
         f"⚔️ <b>Штурмовиков на передке:</b> {mobilized_cnt} чел.\n"
         f"🎖️ <b>В тыловом резерве:</b> {privates_cnt} чел.\n"
+        f"💰 <b>Казна армии:</b> {bank:.2f} монет (/казна)\n"
+        f"⛓️ <b>Военнопленных в застенках:</b> {prisoners_cnt} чел. (/военнопленные)\n"
+        f"🚩 <b>Фронтовой статус:</b> {war_status_str}\n"
+        f"🏆 <b>Побед в СВО:</b> {w_stats.get('wins', 0)} | 💀 <b>Поражений:</b> {w_stats.get('losses', 0)}\n"
         f"📅 <b>Основана:</b> {created_date}\n\n"
         f"📋 <b>Личный состав:</b>\n{members_text}\n\n"
         f"💡 <i>Ваше звание:</i> <b>{html.escape(user_rank)}</b>\n"
@@ -164,8 +179,11 @@ async def my_army_cmd(message: Message):
     if member_info.get("rank") == RANK_CREATOR:
         msg_text += (
             "\n\n⚙️ <b>Панель Главнокомандующего:</b>\n"
-            "• <code>/мобилизация [число]</code> — отправить рядовых на передок\n"
+            "• <code>/сво [Армия]</code> — объявить Специальную Военную Операцию\n"
+            "• <code>/мобилизация [число]</code> — отправить бойцов на передок\n"
             "• <code>/демобилизация [число|все]</code> — вернуть бойцов в резерв\n"
+            "• /казна — управление военным бюджетом\n"
+            "• /военнопленные — застенки и пленные\n"
             "• /расформировать_армию — ликвидировать армию"
         )
 
@@ -265,6 +283,16 @@ async def mobilize_cmd(message: Message):
     army, _ = army_manager.get_user_army(user_id)
     army_name = army["name"] if army else "армии"
 
+    # Если идёт активная СВО — немедленно зачисляем на фронт
+    reinforce_note = ""
+    if army and army.get("active_war_id"):
+        from utils.war_manager import WarManager
+        wm = WarManager()
+        army_key = army_manager.get_user_army_key(user_id)
+        if army_key:
+            wm.register_reinforcement(army_key, mobilized_members)
+            reinforce_note = "\n🔥 <b>БОЕВОЕ ПОДКРЕПЛЕНИЕ!</b> Новобранцы немедленно развёрнуты на линии соприкосновения текущей СВО!\n"
+
     recruits_lines = []
     for idx, m in enumerate(mobilized_members, 1):
         mid = m.get("user_id")
@@ -275,7 +303,8 @@ async def mobilize_cmd(message: Message):
 
     response_text = (
         f"🚨 <b>ВНИМАНИЕ! ОБЪЯВЛЕНА МОБИЛИЗАЦИЯ!</b> 🚨\n\n"
-        f"👑 Главнокомандующий вооружённых сил «<b>{html.escape(army_name)}</b>» подписал указ о мобилизации <b>{len(mobilized_members)}</b> бойцов на передовую!\n\n"
+        f"👑 Главнокомандующий вооружённых сил «<b>{html.escape(army_name)}</b>» подписал указ о мобилизации <b>{len(mobilized_members)}</b> бойцов на передовую!\n"
+        f"{reinforce_note}\n"
         f"🎯 <b>Список мобилизованных штурмовиков:</b>\n"
         f"{recruits_text}\n\n"
         f"🫡 Родина вас не забудет, бойцы! Готовьтесь к предстоящим боевым действиям на СВО!"
@@ -288,6 +317,16 @@ async def mobilize_cmd(message: Message):
 async def demobilize_cmd(message: Message):
     """Команда для демобилизации бойцов с передовой обратно в резерв."""
     user_id = message.from_user.id
+    army, _ = army_manager.get_user_army(user_id)
+    if army and army.get("active_war_id"):
+        await message.reply(
+            "⚔️ <b>Отставить ротацию! Ваша армия сейчас ведёт боевые действия на СВО!</b>\n"
+            "Демобилизация штурмовиков во время боя приравнивается к паникёрству. "
+            "Дождитесь окончания операции или объявите капитуляцию (<code>/капитуляция</code>).",
+            parse_mode="HTML"
+        )
+        return
+
     parts = message.text.split()[1:]
 
     count = None
