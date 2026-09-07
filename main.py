@@ -202,6 +202,7 @@ async def main():
         BotCommand(command="top", description="Топ богатых игроков"),
         BotCommand(command="transfer", description="Передать монеты другому игроку"),
         BotCommand(command="my_army", description="Моя армия и войска"),
+        BotCommand(command="army_help", description="Полное руководство по Армии и СВО"),
         BotCommand(command="svo", description="Специальная Военная Операция"),
         BotCommand(command="front", description="Фронтовая сводка СВО"),
         BotCommand(command="prisoners", description="Военнопленные армии"),
