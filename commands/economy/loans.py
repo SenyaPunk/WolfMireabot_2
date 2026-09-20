@@ -2,6 +2,7 @@
 import logging
 import random
 import time
+from typing import Optional, Dict, List, Tuple, Any
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
