@@ -90,23 +90,23 @@ def render_poker_table_image(game_state: Dict[str, Any], is_showdown: bool = Fal
     draw.rounded_rectangle([48, 43, w - 48, h - 43], radius=145, fill=(15, 78, 50), outline=(8, 48, 30), width=3)
     draw.rounded_rectangle([95, 85, w - 95, h - 85], radius=120, outline=(24, 112, 72), width=2)
     
-    # Небольшой едва заметный водяной знак логотипа Волки МИРЭА
+    # Небольшой едва заметный водяной знак логотипа Волки МИРЭА (смещен чуть ниже центра)
     logo_path = Path("data/assets/volki_mirea_logo.png")
     if logo_path.exists():
         try:
             logo = Image.open(logo_path).convert("RGBA")
-            logo_size = 100
+            logo_size = 110
             logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
             alpha = logo.split()[3]
-            alpha = ImageEnhance.Brightness(alpha).enhance(0.10)
+            alpha = ImageEnhance.Brightness(alpha).enhance(0.12)
             logo.putalpha(alpha)
-            img.paste(logo, ((w - logo_size) // 2, 200), mask=logo)
+            img.paste(logo, ((w - logo_size) // 2, 265), mask=logo)
         except Exception:
             pass
 
     # Брендинг университета и чата на сукне (мягкий и ненавязчивый)
     f_brand = get_font(12, bold=False)
-    draw.text((w // 2, 385), "РТУ МИРЭА • ВОЛКИ", fill=(24, 96, 62), font=f_brand, anchor="mm")
+    draw.text((w // 2, 400), "РТУ МИРЭА • ВОЛКИ", fill=(26, 100, 66), font=f_brand, anchor="mm")
     
     # Едва заметная пасхалка автора (SenyaPnk) на нижнем деревянном бортике
     f_egg = get_font(11, bold=False)
