@@ -345,9 +345,12 @@ async def handle_timeout_action(bot: Bot, chat_id: int):
     current_bet = game_state.get("current_bet", 0)
     
     # Если ставка уравнена - авто-чек, иначе - авто-фолд
+    actor_link = get_user_link(current_player["user_id"])
     if p_bet == current_bet:
         logger.info(f"Poker timeout: auto-check for {current_player['user_id']}")
+        await safe_send_message(bot, chat_id, f"⏱ Время на ход вышло! {actor_link} автоматически играет <b>Чек</b>.")
         await process_player_turn(bot, chat_id, "check")
     else:
         logger.info(f"Poker timeout: auto-fold for {current_player['user_id']}")
+        await safe_send_message(bot, chat_id, f"⏱ Время на ход вышло (60с)! {actor_link} сбросил карты (<b>Пас</b>).")
         await process_player_turn(bot, chat_id, "fold")

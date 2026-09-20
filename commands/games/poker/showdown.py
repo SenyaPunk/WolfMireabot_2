@@ -15,7 +15,7 @@ from utils.poker_evaluator import (
     compare_hands
 )
 from .table import get_poker_game_key, cancel_poker_timer, render_community_cards
-from .helpers import safe_send_message, safe_delete_message
+from .helpers import safe_send_message, safe_delete_message, safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +63,25 @@ async def finish_hand_single_winner(bot: Bot, chat_id: int, winner_player: Dict[
             
     economy_manager.add_money(winner_uid, actual_payout)
     
-    # Удаляем сообщение стола
-    if old_msg_id:
-        await safe_delete_message(bot, chat_id, old_msg_id)
-        
     # Удаляем игру из базы
     game_state_manager.delete_game(game_key)
     
     text = (
         f"🏆 <b>ПОКЕР — ПОБЕДА БЕЗ ВСКРЫТИЯ КАРТ!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Все соперники сбросили карты (Пас), признав поражение!\n\n"
+        f"Все остальные игроки сбросили карты (Пас / вышло время хода)!\n\n"
         f"👑 <b>Победитель:</b> {winner_link}\n"
         f"💰 <b>Выигрыш:</b> <code>+{actual_payout}</code> монет (банк: {pot}){master_info}\n\n"
         f"💡 <i>Хотите сыграть еще? Жмите кнопку ниже!</i>"
     )
     kb = get_endgame_keyboard(blind)
-    await safe_send_message(bot, chat_id, text, reply_markup=kb)
+    
+    # Редактируем сообщение стола, чтобы ничего не исчезало
+    edited = False
+    if old_msg_id:
+        edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+    if not edited:
+        await safe_send_message(bot, chat_id, text, reply_markup=kb)
 
 
 async def run_showdown(bot: Bot, chat_id: int):
@@ -161,10 +163,6 @@ async def run_showdown(bot: Bot, chat_id: int):
     winners_block = "\n".join(winner_notices)
     comm_rendered = render_community_cards(community)
     
-    # Удаляем сообщение стола
-    if old_msg_id:
-        await safe_delete_message(bot, chat_id, old_msg_id)
-        
     game_state_manager.delete_game(game_key)
     
     text = (
@@ -180,4 +178,10 @@ async def run_showdown(bot: Bot, chat_id: int):
         f"<i>Раздача завершена! Спасибо за красивую игру!</i>"
     )
     kb = get_endgame_keyboard(blind)
-    await safe_send_message(bot, chat_id, text, reply_markup=kb)
+    
+    # Редактируем сообщение стола
+    edited = False
+    if old_msg_id:
+        edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+    if not edited:
+        await safe_send_message(bot, chat_id, text, reply_markup=kb)

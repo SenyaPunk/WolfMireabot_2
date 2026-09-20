@@ -25,7 +25,8 @@ game_state_manager = GameStateManager()
 
 # Таймеры хода игроков: game_key -> asyncio.Task
 poker_turn_timers: Dict[str, asyncio.Task] = {}
-TURN_TIMEOUT = 30
+TURN_TIMEOUT = 60
+WARNING_TIMEOUT = 35
 
 
 def cancel_poker_timer(game_key: str):
@@ -304,13 +305,35 @@ async def launch_poker_hand(
 
 
 def start_turn_timer(bot: Bot, chat_id: int):
-    """Запускает таймер 30 секунд на ход текущего игрока."""
+    """Запускает таймер 60 секунд на ход текущего игрока с предупреждением на 35 секундах."""
     game_key = get_poker_game_key(chat_id)
     cancel_poker_timer(game_key)
     
     async def _timer_coro():
         try:
-            await asyncio.sleep(TURN_TIMEOUT)
+            # Ждем 35 секунд до первого предупреждения
+            await asyncio.sleep(WARNING_TIMEOUT)
+            
+            # Отправляем предупреждение, если раздача всё еще идет
+            if game_state_manager.game_exists(game_key):
+                game_state = game_state_manager.get_game(game_key)
+                if game_state and game_state.get("players"):
+                    actor_idx = game_state.get("current_actor_idx", 0)
+                    players = game_state.get("players", [])
+                    if 0 <= actor_idx < len(players):
+                        actor = players[actor_idx]
+                        if not actor.get("folded") and not actor.get("all_in"):
+                            actor_link = get_user_link(actor["user_id"])
+                            rem = TURN_TIMEOUT - WARNING_TIMEOUT
+                            await safe_send_message(
+                                bot, 
+                                chat_id, 
+                                f"⏱ {actor_link}, у вас осталось <b>{rem} секунд</b> на ход в покере!"
+                            )
+            
+            # Ждем оставшиеся 25 секунд
+            await asyncio.sleep(TURN_TIMEOUT - WARNING_TIMEOUT)
+            
             # Авто-действие при таймауте
             from .betting import handle_timeout_action
             await handle_timeout_action(bot, chat_id)
