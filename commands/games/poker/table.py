@@ -7,6 +7,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile, InputMediaPhoto
 
 from utils.economy_manager import EconomyManager
+from utils.game_state_manager import GameStateManager
 from utils.user_link import get_user_link
 from utils.poker_evaluator import (
     format_cards,
