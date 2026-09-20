@@ -111,11 +111,35 @@ async def heal_cmd(message: Message):
     await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
 
 
-@router.message(Command("resupply", "снабжение", "бк", "дроны"))
+@router.message(Command("resupply", "снабжение", "бк", "снаряды"))
 async def resupply_cmd(message: Message):
-    """Доставка боеприпасов и дронов штурмовикам тыловым резервом."""
+    """Доставка боеприпасов штурмовикам тыловым резервом."""
     user_id = message.from_user.id
     success, result_msg, war = war_manager.execute_resupply(user_id)
+    await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("drone", "дрон", "дроны", "fpv", "удар_дроном"))
+async def drone_cmd(message: Message):
+    """Нанесение удара боевым FPV-дроном."""
+    user_id = message.from_user.id
+    success, result_msg, war = war_manager.execute_drone_strike(user_id)
+    await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("repair", "укрепить", "ремонт", "починить_базу", "фортификация"))
+async def repair_fortress_cmd(message: Message):
+    """Инженерный ремонт и укрепление оборонительного рубежа."""
+    user_id = message.from_user.id
+    success, result_msg, war = war_manager.execute_repair_fortress(user_id)
+    await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("ewar", "рэб", "jam", "помехи"))
+async def ewar_cmd(message: Message):
+    """Постановка направленных радиоэлектронных помех РЭБ (ур. 4+)."""
+    user_id = message.from_user.id
+    success, result_msg, war = war_manager.execute_ewar_pulse(user_id)
     await message.reply(result_msg, parse_mode="HTML", disable_web_page_preview=True)
 
 
@@ -245,6 +269,10 @@ async def army_bank_cmd(message: Message):
         f"💀 Поражений: <b>{w_stats.get('losses', 0)}</b>\n"
         f"⛓️ Захвачено пленных: <b>{w_stats.get('captures', 0)}</b>\n"
         f"🏆 Захвачено трофеев: <b>{w_stats.get('total_looted', 0.0):.2f} монет</b>\n\n"
+        f"🔬 <b>Военная модернизация:</b>\n"
+        f"Казна расходуется на закупку боевых дронов, укрепрайона, медицины и РЭБ:\n"
+        f"• Просмотр арсенала: <code>/улучшения</code>\n"
+        f"• Прокачка ветки: <code>/прокачать [ветка]</code>\n\n"
         f"💡 <i>Пополнить казну:</i> <code>/пополнить_казну [сумма]</code>"
     )
     await message.reply(msg, parse_mode="HTML")
