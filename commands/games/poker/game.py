@@ -128,6 +128,10 @@ async def poker_command(message: Message, bot: Bot):
     if not message.from_user:
         return
     
+    if not admin_manager.is_admin(message.from_user.id):
+        await send_error_message(message, "🚫 Только администраторы могут создавать стол для покера!")
+        return
+    
     if message.chat.type == "private":
         await send_error_message(message, "🚫 В покер можно играть только в группах и беседах!")
         return
@@ -300,8 +304,8 @@ async def cb_poker_start_early(callback: CallbackQuery, bot: Bot):
         return
         
     data = active_poker_recruiting[game_key]
-    if user_id != data["creator_id"] and not admin_manager.is_admin(user_id):
-        await callback.answer("🚫 Начать досрочно может только создатель игры или администратор!", show_alert=True)
+    if not admin_manager.is_admin(user_id):
+        await callback.answer("🚫 Начать раздачу досрочно может только администратор!", show_alert=True)
         return
         
     if len(data["players"]) < MIN_PLAYERS:
@@ -323,8 +327,8 @@ async def cb_poker_cancel(callback: CallbackQuery, bot: Bot):
         return
         
     data = active_poker_recruiting[game_key]
-    if user_id != data["creator_id"] and not admin_manager.is_admin(user_id):
-        await callback.answer("🚫 Отменить стол может только создатель или администратор!", show_alert=True)
+    if not admin_manager.is_admin(user_id):
+        await callback.answer("🚫 Отменить стол может только администратор!", show_alert=True)
         return
         
     active_poker_recruiting.pop(game_key, None)
@@ -332,7 +336,7 @@ async def cb_poker_cancel(callback: CallbackQuery, bot: Bot):
     
     cancel_text = (
         f"❌ <b>СТОЛ ДЛЯ ПОКЕРА ЗАКРЫТ</b>\n\n"
-        f"Создатель или администратор отменил игру."
+        f"Администратор отменил игру."
     )
     await safe_edit_message_caption(bot, chat_id, data["message_id"], caption=cancel_text)
 
@@ -363,6 +367,10 @@ async def cb_poker_replay(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     game_key = get_poker_game_key(chat_id)
     
+    if not admin_manager.is_admin(user_id):
+        await callback.answer("🚫 Только администраторы могут создавать стол для покера!", show_alert=True)
+        return
+        
     if game_state_manager.game_exists(game_key) or game_key in active_poker_recruiting:
         await callback.answer("⚠️ Стол уже создан или идет игра!", show_alert=True)
         return
@@ -387,12 +395,13 @@ async def cb_poker_replay(callback: CallbackQuery, bot: Bot):
     
     caption = format_recruitment_caption(blind, initial_players, RECRUITMENT_TIME)
     kb = get_recruitment_keyboard(chat_id, len(initial_players), False)
-    photo_url = "https://img.freepik.com/free-photo/poker-chips-cards-green-casino-felt-table_1409-5147.jpg"
+    banner_file = Path("data/assets/poker_banner.jpg")
+    photo_to_send = FSInputFile(str(banner_file)) if banner_file.exists() else "https://img.freepik.com/free-photo/poker-chips-cards-green-casino-felt-table_1409-5147.jpg"
     
     try:
         sent_msg = await bot.send_photo(
             chat_id=chat_id,
-            photo=photo_url,
+            photo=photo_to_send,
             caption=caption,
             reply_markup=kb,
             parse_mode="HTML"
