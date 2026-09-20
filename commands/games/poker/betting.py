@@ -13,7 +13,8 @@ from utils.poker_evaluator import (
     card_str,
     format_cards,
     evaluate_7card_hand,
-    card_full_name
+    card_full_name,
+    SUIT_SYMBOLS
 )
 from .table import (
     get_poker_game_key,
@@ -35,41 +36,52 @@ game_state_manager = GameStateManager()
 @router.callback_query(F.data.startswith("poker_show_cards:"))
 async def cb_poker_show_cards(callback: CallbackQuery):
     """Показывает приватные карманные карты игроку через alert popup."""
-    chat_id = int(callback.data.split(":")[1])
-    game_key = get_poker_game_key(chat_id)
-    user_id = callback.from_user.id
-    
-    if not game_state_manager.game_exists(game_key):
-        await callback.answer("❌ Игра уже завершена!", show_alert=True)
-        return
+    try:
+        chat_id = int(callback.data.split(":")[1])
+        game_key = get_poker_game_key(chat_id)
+        user_id = callback.from_user.id
         
-    game_state = game_state_manager.get_game(game_key)
-    players = game_state.get("players", [])
-    
-    player = next((p for p in players if p["user_id"] == user_id), None)
-    if not player:
-        await callback.answer("🚫 Вы не участвуете в этой раздаче.", show_alert=True)
-        return
+        if not game_state_manager.game_exists(game_key):
+            await callback.answer("❌ Игра уже завершена!", show_alert=True)
+            return
+            
+        game_state = game_state_manager.get_game(game_key)
+        players = game_state.get("players", [])
         
-    if player.get("folded"):
-        await callback.answer("❌ Вы сбросили карты в этой раздаче (Пас).", show_alert=True)
-        return
+        player = next((p for p in players if p["user_id"] == user_id), None)
+        if not player:
+            await callback.answer("🚫 Вы не участвуете в этой раздаче.", show_alert=True)
+            return
+            
+        if player.get("folded"):
+            await callback.answer("❌ Вы сбросили карты в этой раздаче (Пас).", show_alert=True)
+            return
+            
+        hole = player.get("hole_cards", [])
+        if not hole or len(hole) < 2:
+            await callback.answer("🚫 Ваши карты еще не разданы.", show_alert=True)
+            return
+
+        community = game_state.get("community_cards", [])
+        all_available = hole + community
         
-    hole = player.get("hole_cards", [])
-    community = game_state.get("community_cards", [])
-    all_available = hole + community
-    
-    eval_res = evaluate_7card_hand(all_available)
-    s1 = SUIT_SYMBOLS.get(hole[0]['suit'], hole[0]['suit'])
-    s2 = SUIT_SYMBOLS.get(hole[1]['suit'], hole[1]['suit'])
-    cards_str = f"[{hole[0]['rank']}{s1}]  [{hole[1]['rank']}{s2}]"
-    
-    popup_text = (
-        f"🃏 Ваши карты: {cards_str}\n"
-        f"📊 Комбинация: {eval_res['description']}\n"
-        f"💰 Фишки: {player['stack']} | В банке: {player['total_bet']}"
-    )
-    await callback.answer(popup_text[:190], show_alert=True)
+        eval_res = evaluate_7card_hand(all_available)
+        s1 = SUIT_SYMBOLS.get(hole[0]['suit'], hole[0]['suit'])
+        s2 = SUIT_SYMBOLS.get(hole[1]['suit'], hole[1]['suit'])
+        cards_str = f"[{hole[0]['rank']}{s1}]  [{hole[1]['rank']}{s2}]"
+        
+        popup_text = (
+            f"🃏 Ваши карты: {cards_str}\n"
+            f"📊 Комбинация: {eval_res['description']}\n"
+            f"💰 Фишки: {player['stack']} | В банке: {player['total_bet']}"
+        )
+        await callback.answer(popup_text[:190], show_alert=True)
+    except Exception as e:
+        logger.error(f"Error in cb_poker_show_cards: {e}", exc_info=True)
+        try:
+            await callback.answer("❌ Не удалось загрузить карты.", show_alert=True)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("poker_act:"))

@@ -14,7 +14,8 @@ from utils.poker_evaluator import (
     evaluate_7card_hand,
     compare_hands,
     card_badge,
-    card_full_name
+    card_full_name,
+    SUIT_SYMBOLS
 )
 from utils.poker_table_renderer import render_poker_table_image
 from .table import get_poker_game_key, cancel_poker_timer, render_community_cards

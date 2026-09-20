@@ -8,9 +8,13 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedIn
 
 from utils.economy_manager import EconomyManager
 from utils.user_link import get_user_link
-from utils.game_state_manager import GameStateManager
-from utils.poker_evaluator import format_cards, evaluate_7card_hand, card_badge, card_full_name
-from utils.poker_table_renderer import render_poker_table_image
+from utils.poker_evaluator import (
+    format_cards,
+    evaluate_7card_hand,
+    card_badge,
+    card_full_name,
+    SUIT_SYMBOLS
+)
 from .helpers import (
     create_shuffled_deck,
     safe_edit_message_text,
