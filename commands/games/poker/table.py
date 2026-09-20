@@ -16,6 +16,7 @@ from utils.poker_evaluator import (
     card_full_name,
     SUIT_SYMBOLS
 )
+from utils.poker_table_renderer import render_poker_table_image
 from .helpers import (
     create_shuffled_deck,
     safe_edit_message_text,
