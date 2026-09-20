@@ -103,11 +103,12 @@ async def game_lifetime_monitor(bot: Bot):
                     
                     # 2. Отправляем уведомление в чат
                     if chat_id:
+                        game_name = "Покер" if str(game_key).startswith("poker_") else "Блекджек"
                         refund_list = "\n".join(refunded_players) if refunded_players else "Ставок не было."
                         msg_text = (
                             f"⚠️ <b>ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ ИГРЫ</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"Сессия игры Блекджек превысила лимит времени (5 минут) и была остановлена.\n\n"
+                            f"Сессия игры {game_name} превысила лимит времени (5 минут) и была остановлена.\n\n"
                             f"💰 <b>Возвращенные ставки:</b>\n{refund_list}"
                         )
                         try:
@@ -116,11 +117,18 @@ async def game_lifetime_monitor(bot: Bot):
                             logging.error(f"Failed to send refund notice to chat {chat_id}: {e}")
                     
                     # 3. Отменяем активные таймеры хода
-                    try:
-                        from commands.games.blackjack.playing import cancel_player_timer
-                        cancel_player_timer(game_key)
-                    except Exception as e:
-                        logging.warning(f"Could not cancel timer for stuck game {game_key}: {e}")
+                    if str(game_key).startswith("poker_"):
+                        try:
+                            from commands.games.poker.table import cancel_poker_timer
+                            cancel_poker_timer(game_key)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            from commands.games.blackjack.playing import cancel_player_timer
+                            cancel_player_timer(game_key)
+                        except Exception as e:
+                            logging.warning(f"Could not cancel timer for stuck game {game_key}: {e}")
                     
                     # 4. Удаляем сессию игры из базы данных
                     gsm.delete_game(game_key)
@@ -160,20 +168,22 @@ async def main():
                         refunds.append(f"• 👤 <b>{uname}</b>: {bet_amount} монет")
                 
                 if chat_id:
+                    game_title = "Покер" if str(game_key).startswith("poker_") else "Блекджек"
+                    cmd_hint = "/poker" if str(game_key).startswith("poker_") else "/blackjack"
                     if refunds:
                         refund_msg = (
                             f"⚠️ <b>ПЕРЕЗАПУСК БОТА / ОБНОВЛЕНИЕ</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"Предыдущая сессия игры в Блекджек была остановлена из-за обновления бота.\n\n"
+                            f"Предыдущая сессия игры в {game_title} была остановлена из-за обновления бота.\n\n"
                             f"💰 <b>Все сделанные ставки успешно возвращены:</b>\n" + "\n".join(refunds) + "\n\n"
-                            f"💡 <i>Вы можете запустить новую игру через команду /blackjack</i>"
+                            f"💡 <i>Вы можете запустить новую игру через команду {cmd_hint}</i>"
                         )
                     else:
                         refund_msg = (
                             f"⚠️ <b>ПЕРЕЗАПУСК БОТА / ОБНОВЛЕНИЕ</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━\n"
-                            f"Предыдущий набор на игру в Блекджек был сброшен из-за обновления бота.\n\n"
-                            f"💡 <i>Вы можете начать новую игру через команду /blackjack</i>"
+                            f"Предыдущий набор на игру в {game_title} был сброшен из-за обновления бота.\n\n"
+                            f"💡 <i>Вы можете начать новую игру через команду {cmd_hint}</i>"
                         )
                     try:
                         await bot.send_message(chat_id=chat_id, text=refund_msg, parse_mode="HTML")
