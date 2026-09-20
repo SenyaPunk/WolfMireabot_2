@@ -2,10 +2,11 @@
 import asyncio
 import time
 import logging
+from pathlib import Path
 from typing import Dict, Any, List
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, FSInputFile
 
 from utils.economy_manager import EconomyManager
 from utils.admin_manager import AdminManager
@@ -180,13 +181,14 @@ async def poker_command(message: Message, bot: Bot):
     caption = format_recruitment_caption(blind, initial_players, RECRUITMENT_TIME)
     kb = get_recruitment_keyboard(chat_id, len(initial_players), False)
     
-    # URL баннера покера
-    photo_url = "https://img.freepik.com/free-photo/poker-chips-cards-green-casino-felt-table_1409-5147.jpg"
+    # Баннер покера Волки МИРЭА
+    banner_file = Path("data/assets/poker_banner.jpg")
+    photo_to_send = FSInputFile(str(banner_file)) if banner_file.exists() else "https://img.freepik.com/free-photo/poker-chips-cards-green-casino-felt-table_1409-5147.jpg"
     
     try:
         sent_msg = await bot.send_photo(
             chat_id=chat_id,
-            photo=photo_url,
+            photo=photo_to_send,
             caption=caption,
             reply_markup=kb,
             parse_mode="HTML"

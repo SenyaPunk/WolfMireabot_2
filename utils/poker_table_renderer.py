@@ -2,7 +2,7 @@
 import io
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 # Символы мастей
 SUIT_SYMBOLS = {
@@ -89,6 +89,27 @@ def render_poker_table_image(game_state: Dict[str, Any], is_showdown: bool = Fal
     draw.rounded_rectangle([42, 37, w - 42, h - 37], radius=150, outline=(135, 90, 30), width=2)
     draw.rounded_rectangle([48, 43, w - 48, h - 43], radius=145, fill=(15, 78, 50), outline=(8, 48, 30), width=3)
     draw.rounded_rectangle([95, 85, w - 95, h - 85], radius=120, outline=(24, 112, 72), width=2)
+    
+    # Водяной знак логотипа Волки МИРЭА по центру стола
+    logo_path = Path("data/assets/volki_mirea_logo.png")
+    if logo_path.exists():
+        try:
+            logo = Image.open(logo_path).convert("RGBA")
+            logo = logo.resize((190, 190), Image.Resampling.LANCZOS)
+            alpha = logo.split()[3]
+            alpha = ImageEnhance.Brightness(alpha).enhance(0.24)
+            logo.putalpha(alpha)
+            img.paste(logo, ((w - 190) // 2, 160), mask=logo)
+        except Exception:
+            pass
+
+    # Брендинг университета и чата на сукне
+    f_brand = get_font(15, bold=True)
+    draw.text((w // 2, 385), "РТУ МИРЭА • ВОЛКИ", fill=(36, 132, 88), font=f_brand, anchor="mm")
+    
+    # Едва заметная пасхалка автора (SenyaPnk) на нижнем деревянном бортике
+    f_egg = get_font(11, bold=False)
+    draw.text((w // 2, h - 31), "SenyaPnk", fill=(72, 40, 26), font=f_egg, anchor="mm")
     
     # 2. Банк (Pot) и название улицы в центре стола
     pot = game_state.get("pot", 0)

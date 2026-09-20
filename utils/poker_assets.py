@@ -43,9 +43,21 @@ def generate_poker_chart(output_path: str = "data/assets/poker_combinations.png"
     draw.rounded_rectangle([15, 15, width - 15, height - 15], radius=24, outline=(212, 175, 55), width=3)
     
     # Шапка
-    draw.rounded_rectangle([30, 30, width - 30, 115], radius=16, fill=(28, 35, 54), outline=(70, 85, 125), width=2)
-    draw.text((width // 2, 52), "ПОКЕРНЫЕ КОМБИНАЦИИ", fill=(255, 215, 0), font=font_title, anchor="mm")
-    draw.text((width // 2, 92), "Техасский Холдем • Иерархия от сильнейшей к слабейшей", fill=(180, 200, 225), font=font_sub, anchor="mm")
+    draw.rounded_rectangle([30, 26, width - 30, 122], radius=16, fill=(24, 32, 50), outline=(70, 85, 125), width=2)
+    
+    # Вставка логотипа чата Волки МИРЭА
+    logo_path = Path("data/assets/volki_mirea_logo.png")
+    if logo_path.exists():
+        try:
+            logo_img = Image.open(logo_path).convert("RGBA")
+            logo_thumb = logo_img.resize((82, 82), Image.Resampling.LANCZOS)
+            img.paste(logo_thumb, (44, 33), mask=logo_thumb)
+            img.paste(logo_thumb, (width - 44 - 82, 33), mask=logo_thumb)
+        except Exception:
+            pass
+
+    draw.text((width // 2, 55), "ВОЛКИ МИРЭА • РТУ МИРЭА", fill=(255, 215, 0), font=font_title, anchor="mm")
+    draw.text((width // 2, 95), "Техасский Холдем • Комбинации карт", fill=(185, 210, 240), font=font_sub, anchor="mm")
     
     combos = [
         {
@@ -165,7 +177,9 @@ def generate_poker_chart(output_path: str = "data/assets/poker_combinations.png"
             draw.text((cx + card_w - 12, card_y + card_h - 18), s_icon, fill=c_fill, font=font_card_suit, anchor="mm")
 
     # Футер
-    draw.text((width // 2, height - 32), "WolfMireaBot Casino • Покерные правила", fill=(120, 140, 170), font=font_sub, anchor="mm")
+    font_footer = get_font(13, bold=False)
+    draw.text((width // 2, height - 34), "WolfMireaBot • Клуб «Волки МИРЭА» • РТУ МИРЭА", fill=(130, 150, 185), font=font_sub, anchor="mm")
+    draw.text((width - 45, height - 20), "made by SenyaPnk", fill=(75, 90, 115), font=font_footer, anchor="rm")
     
     img.save(target, format="PNG")
     return str(target)
