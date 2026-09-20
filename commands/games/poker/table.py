@@ -4,15 +4,18 @@ import time
 import logging
 from typing import Dict, Any, List, Optional
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile, InputMediaPhoto
 
 from utils.economy_manager import EconomyManager
 from utils.user_link import get_user_link
 from utils.game_state_manager import GameStateManager
 from utils.poker_evaluator import format_cards, evaluate_7card_hand
+from utils.poker_table_renderer import render_poker_table_image
 from .helpers import (
     create_shuffled_deck,
     safe_edit_message_text,
+    safe_edit_message_caption,
+    safe_edit_message_media,
     safe_send_message,
     safe_delete_message,
     abort_poker_and_refund
@@ -288,10 +291,24 @@ async def launch_poker_hand(
         "bets": bets_record
     }
     
+    # Рендерим изображение стола
+    buf = render_poker_table_image(game_state)
     text = format_table_text(game_state)
     kb = get_table_keyboard(game_state)
+    photo_file = BufferedInputFile(buf.getvalue(), filename="poker_table.png")
     
-    table_msg = await safe_send_message(bot, chat_id, text=text, reply_markup=kb)
+    try:
+        table_msg = await bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_file,
+            caption=text,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send table photo in {chat_id}: {e}")
+        table_msg = await safe_send_message(bot, chat_id, text=text, reply_markup=kb)
+        
     if not table_msg:
         logger.error(f"Failed to send table message in {chat_id}")
         await abort_poker_and_refund(bot, chat_id, game_key, game_state_manager, "Ошибка создания стола")
@@ -302,6 +319,28 @@ async def launch_poker_hand(
     
     # Запускаем таймер первого хода
     start_turn_timer(bot, chat_id)
+
+
+async def update_table_view(bot: Bot, chat_id: int, game_state: Dict[str, Any], is_showdown: bool = False) -> bool:
+    """Генерирует актуальную картинку стола и обновляет медиа в Telegram."""
+    message_id = game_state.get("message_id")
+    if not message_id:
+        return False
+        
+    buf = render_poker_table_image(game_state, is_showdown=is_showdown)
+    caption = format_table_text(game_state)
+    kb = get_table_keyboard(game_state)
+    
+    media = InputMediaPhoto(
+        media=BufferedInputFile(buf.getvalue(), filename="poker_table.png"),
+        caption=caption,
+        parse_mode="HTML"
+    )
+    edited = await safe_edit_message_media(bot, chat_id, message_id, media=media, reply_markup=kb)
+    if not edited:
+        # Резервное обновление подписи, если замена картинки заблокирована
+        await safe_edit_message_caption(bot, chat_id, message_id, caption=caption, reply_markup=kb)
+    return edited
 
 
 def start_turn_timer(bot: Bot, chat_id: int):

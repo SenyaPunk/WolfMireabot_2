@@ -88,6 +88,37 @@ async def safe_edit_message_caption(
     return False
 
 
+async def safe_edit_message_media(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    media,
+    reply_markup=None
+) -> bool:
+    for attempt in range(3):
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=media,
+                reply_markup=reply_markup
+            )
+            return True
+        except TelegramRetryAfter as e:
+            logger.warning(f"RetryAfter in poker edit_message_media: {e.retry_after}s")
+            await asyncio.sleep(e.retry_after + 0.5)
+        except TelegramBadRequest as e:
+            err = str(e).lower()
+            if "message is not modified" in err:
+                return True
+            logger.warning(f"TelegramBadRequest in poker edit_message_media: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error in poker edit_message_media: {e}")
+            return False
+    return False
+
+
 async def safe_send_message(
     bot: Bot, 
     chat_id: int, 

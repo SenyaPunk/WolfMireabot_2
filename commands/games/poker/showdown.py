@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile, InputMediaPhoto
 
 from utils.economy_manager import EconomyManager
 from utils.slave_manager import SlaveManager
@@ -14,8 +14,9 @@ from utils.poker_evaluator import (
     evaluate_7card_hand,
     compare_hands
 )
+from utils.poker_table_renderer import render_poker_table_image
 from .table import get_poker_game_key, cancel_poker_timer, render_community_cards
-from .helpers import safe_send_message, safe_delete_message, safe_edit_message_text
+from .helpers import safe_send_message, safe_delete_message, safe_edit_message_text, safe_edit_message_media
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +77,21 @@ async def finish_hand_single_winner(bot: Bot, chat_id: int, winner_player: Dict[
     )
     kb = get_endgame_keyboard(blind)
     
-    # Редактируем сообщение стола, чтобы ничего не исчезало
+    # Редактируем сообщение стола с обновленным фото
     edited = False
     if old_msg_id:
-        edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+        try:
+            buf = render_poker_table_image(game_state, is_showdown=False)
+            media = InputMediaPhoto(
+                media=BufferedInputFile(buf.getvalue(), filename="poker_winner.png"),
+                caption=text,
+                parse_mode="HTML"
+            )
+            edited = await safe_edit_message_media(bot, chat_id, old_msg_id, media=media, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Error editing winner photo: {e}")
+            edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+            
     if not edited:
         await safe_send_message(bot, chat_id, text, reply_markup=kb)
 
@@ -179,9 +191,20 @@ async def run_showdown(bot: Bot, chat_id: int):
     )
     kb = get_endgame_keyboard(blind)
     
-    # Редактируем сообщение стола
+    # Редактируем сообщение стола с открытыми картами игроков на картинке
     edited = False
     if old_msg_id:
-        edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+        try:
+            buf = render_poker_table_image(game_state, is_showdown=True)
+            media = InputMediaPhoto(
+                media=BufferedInputFile(buf.getvalue(), filename="poker_showdown.png"),
+                caption=text,
+                parse_mode="HTML"
+            )
+            edited = await safe_edit_message_media(bot, chat_id, old_msg_id, media=media, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Error editing showdown photo: {e}")
+            edited = await safe_edit_message_text(bot, chat_id, old_msg_id, text, reply_markup=kb)
+            
     if not edited:
         await safe_send_message(bot, chat_id, text, reply_markup=kb)

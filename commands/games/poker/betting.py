@@ -19,7 +19,8 @@ from .table import (
     format_table_text,
     get_table_keyboard,
     start_turn_timer,
-    cancel_poker_timer
+    cancel_poker_timer,
+    update_table_view
 )
 from .helpers import safe_edit_message_text, safe_send_message
 
@@ -195,10 +196,8 @@ async def process_player_turn(bot: Bot, chat_id: int, action: str, raise_amount:
         game_state["current_actor_idx"] = next_idx
         game_state_manager.update_game(game_key, game_state)
         
-        # Обновляем сообщение стола
-        text = format_table_text(game_state)
-        kb = get_table_keyboard(game_state)
-        await safe_edit_message_text(bot, chat_id, game_state["message_id"], text=text, reply_markup=kb)
+        # Обновляем фото стола и интерфейс
+        await update_table_view(bot, chat_id, game_state)
         
         # Запускаем таймер следующего хода
         start_turn_timer(bot, chat_id)
@@ -298,9 +297,8 @@ async def advance_street(bot: Bot, chat_id: int):
         game_state["street"] = "showdown"
         game_state_manager.update_game(game_key, game_state)
         
-        # Обновим стол с открытыми картами
-        text = format_table_text(game_state)
-        await safe_edit_message_text(bot, chat_id, game_state["message_id"], text=text)
+        # Обновим фото стола с открытыми картами
+        await update_table_view(bot, chat_id, game_state)
         await asyncio.sleep(2)
         
         from .showdown import run_showdown
@@ -317,10 +315,7 @@ async def advance_street(bot: Bot, chat_id: int):
     game_state["current_actor_idx"] = first_actor
     game_state_manager.update_game(game_key, game_state)
     
-    text = format_table_text(game_state)
-    kb = get_table_keyboard(game_state)
-    await safe_edit_message_text(bot, chat_id, game_state["message_id"], text=text, reply_markup=kb)
-    
+    await update_table_view(bot, chat_id, game_state)
     start_turn_timer(bot, chat_id)
 
 
