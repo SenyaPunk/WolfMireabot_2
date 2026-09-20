@@ -10,6 +10,7 @@ from .transfer import router as transfer_router
 from .work import router as work_router
 from .slaves import router as slaves_router
 from .freelance import router as freelance_router
+from .loans import router as loans_router
 
 router.include_router(balance_router)
 router.include_router(money_router)
@@ -18,4 +19,6 @@ router.include_router(transfer_router)
 router.include_router(work_router)
 router.include_router(slaves_router)
 router.include_router(freelance_router)
+router.include_router(loans_router)
+
 

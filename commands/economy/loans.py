@@ -239,6 +239,48 @@ async def callback_loan_take(callback: CallbackQuery):
     await callback.answer("Займ получен!")
 
 
+@router.callback_query(F.data.startswith("loan_info:"))
+async def callback_loan_info(callback: CallbackQuery):
+    owner_id = int(callback.data.split(":")[1])
+    if callback.from_user.id != owner_id:
+        await callback.answer("❌ Это меню не для вас!", show_alert=True)
+        return
+
+    loan = loan_manager.get_user_loan(owner_id)
+    hist = loan_manager.get_credit_history(owner_id)
+    user_link = get_user_link(owner_id)
+
+    if not loan:
+        await callback.answer("У вас нет активных займов.", show_alert=True)
+        return
+
+    is_overdue = (loan.get("status") == "overdue") or (loan.get("due_at", 0) < time.time())
+    status_label = "🚨 ПРОСРОЧЕН" if is_overdue else "⏳ Активен"
+    rem_time = format_duration(loan.get("due_at", 0) - time.time())
+
+    coll_status = "Никто"
+    if loan.get("collector_contract"):
+        coll_link = get_user_link(loan["collector_contract"])
+        coll_status = f"В разработке у {coll_link}"
+
+    text = (
+        f"📋 <b>ИНФОРМАЦИЯ О ТЕКУЩЕМ ЗАЙМЕ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Заемщик:</b> {user_link}\n"
+        f"🏷️ <b>Тариф:</b> {loan.get('tariff_name', 'Займ')}\n"
+        f"💵 <b>Тело займа:</b> {loan.get('principal', 0):.2f} монет\n"
+        f"💸 <b>Остаток к погашению:</b> <b>{loan.get('debt', 0):.2f}</b> монет\n"
+        f"📊 <b>Статус:</b> <code>{status_label}</code>\n"
+        f"⏳ <b>Срок:</b> {rem_time}\n"
+        f"🕵️ <b>Коллектор:</b> {coll_status}\n\n"
+        f"💡 <i>Погасить займ: <code>/repay</code></i>"
+    )
+    buttons = [[InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"loan_back:{owner_id}")]]
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    await callback.answer()
+
+
+
 @router.message(Command("repay", "погасить", "вернуть_долг", "оплатить_займ"))
 async def repay_command(message: Message):
     user_id = message.from_user.id
