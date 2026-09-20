@@ -12,7 +12,8 @@ from utils.user_link import get_user_link
 from utils.poker_evaluator import (
     card_str,
     format_cards,
-    evaluate_7card_hand
+    evaluate_7card_hand,
+    card_full_name
 )
 from .table import (
     get_poker_game_key,
@@ -59,14 +60,21 @@ async def cb_poker_show_cards(callback: CallbackQuery):
     all_available = hole + community
     
     eval_res = evaluate_7card_hand(all_available)
-    cards_display = f"[{hole[0]['rank']}{hole[0]['suit']}]  [{hole[1]['rank']}{hole[1]['suit']}]"
+    c1_name = card_full_name(hole[0])
+    c2_name = card_full_name(hole[1])
     
     popup_text = (
-        f"🃏 ВАШИ КАРМАННЫЕ КАРТЫ:\n"
-        f"{cards_display}\n\n"
-        f"📊 Комбинация: {eval_res['description']}\n"
-        f"💰 Ваш стек: {player['stack']} монет\n"
-        f"🪙 Вложено в банк: {player['total_bet']} монет"
+        f"🃏 ВАШИ КАРТЫ НА РУКАХ:\n"
+        f"• {c1_name}\n"
+        f"• {c2_name}\n\n"
+        f"📊 Текущая комбинация: {eval_res['description']}\n"
+        f"💰 Ваши фишки: {player['stack']} монет\n"
+        f"🪙 Вложено в банк: {player['total_bet']} монет\n\n"
+        f"💡 Подсказка по ходам:\n"
+        f"• Чек — если ставку до вас не повышали\n"
+        f"• Колл — уравнять текущую ставку\n"
+        f"• Рейз — поднять ставку\n"
+        f"• Пас — сбросить карты"
     )
     await callback.answer(popup_text, show_alert=True)
 

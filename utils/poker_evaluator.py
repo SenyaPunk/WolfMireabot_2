@@ -65,6 +65,16 @@ RANK_INSTRUMENTAL_RU = {
     11: "Валетом", 12: "Дамой", 13: "Королем", 14: "Тузом"
 }
 
+SUIT_NAMES_RU = {
+    'S': 'Пики ♠', 'H': 'Черви ♥', 'D': 'Бубны ♦', 'C': 'Крести ♣',
+    'spades': 'Пики ♠', 'hearts': 'Черви ♥', 'diamonds': 'Бубны ♦', 'clubs': 'Крести ♣'
+}
+
+SUIT_GENITIVE_RU = {
+    'S': 'Пик ♠', 'H': 'Червей ♥', 'D': 'Бубен ♦', 'C': 'Крестей ♣',
+    'spades': 'Пик ♠', 'hearts': 'Червей ♥', 'diamonds': 'Бубен ♦', 'clubs': 'Крестей ♣'
+}
+
 
 def card_str(card: Union[Dict[str, str], Tuple[str, str]]) -> str:
     """Форматирует карту в виде 'A♠' или '10♥'."""
@@ -75,6 +85,36 @@ def card_str(card: Union[Dict[str, str], Tuple[str, str]]) -> str:
         rank, suit = card
     suit_icon = SUIT_SYMBOLS.get(suit, suit)
     return f"{rank}{suit_icon}"
+
+
+def card_full_name(card: Union[Dict[str, str], Tuple[str, str]]) -> str:
+    """Форматирует карту с полным русским описанием: 'Туз Червей (A♥)' или '10 Бубен (10♦)'."""
+    if isinstance(card, dict):
+        rank = str(card['rank'])
+        suit = card['suit']
+    else:
+        rank, suit = str(card[0]), card[1]
+    
+    val = RANK_VALUES.get(rank, 0)
+    rank_name = RANK_SINGLE_RU.get(val, rank)
+    suit_gen = SUIT_GENITIVE_RU.get(suit, suit)
+    suit_icon = SUIT_SYMBOLS.get(suit, suit)
+    
+    return f"{rank_name} {suit_gen} ({rank}{suit_icon})"
+
+
+def card_badge(card: Union[Dict[str, str], Tuple[str, str]]) -> str:
+    """Форматирует плашку карты: '[ 10♥ Черви ]' или '[ A♠ Туз ]'."""
+    if isinstance(card, dict):
+        rank = str(card['rank'])
+        suit = card['suit']
+    else:
+        rank, suit = str(card[0]), card[1]
+        
+    val = RANK_VALUES.get(rank, 0)
+    rank_name = RANK_SINGLE_RU.get(val, rank)
+    suit_icon = SUIT_SYMBOLS.get(suit, suit)
+    return f"[{rank}{suit_icon} {rank_name}]"
 
 
 def format_cards(cards: List[Union[Dict[str, str], Tuple[str, str]]]) -> str:

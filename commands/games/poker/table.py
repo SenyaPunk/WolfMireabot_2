@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedIn
 from utils.economy_manager import EconomyManager
 from utils.user_link import get_user_link
 from utils.game_state_manager import GameStateManager
-from utils.poker_evaluator import format_cards, evaluate_7card_hand
+from utils.poker_evaluator import format_cards, evaluate_7card_hand, card_badge, card_full_name
 from utils.poker_table_renderer import render_poker_table_image
 from .helpers import (
     create_shuffled_deck,
@@ -44,26 +44,26 @@ def get_poker_game_key(chat_id: int) -> str:
 
 
 def render_community_cards(community_cards: List[Dict[str, str]]) -> str:
-    """Отображает общие карты стола или закрытые слоты."""
+    """Отображает общие карты стола с мастями и названиями."""
     cards_str = []
     for c in community_cards:
-        cards_str.append(f"[{c['rank']}{c['suit']}]")
+        cards_str.append(card_badge(c))
     
-    # Дополняем до 5 закрытыми картами
+    # Дополняем до 5 закрытыми слотами
     remaining = 5 - len(community_cards)
     for _ in range(remaining):
-        cards_str.append("🂠")
+        cards_str.append("[ 🂠 Закрыто ]")
         
     return "  ".join(cards_str)
 
 
 def format_table_text(game_state: Dict[str, Any]) -> str:
     street_names = {
-        "preflop": "Префлоп",
-        "flop": "Флоп",
-        "turn": "Терн",
-        "river": "Ривер",
-        "showdown": "Шоудаун (Вскрытие)"
+        "preflop": "Префлоп (Раздача карт)",
+        "flop": "Флоп (Первые 3 карты)",
+        "turn": "Терн (4-я карта)",
+        "river": "Ривер (Финальная 5-я карта)",
+        "showdown": "Шоудаун (Вскрытие карт)"
     }
     
     street = game_state.get("street", "preflop")
@@ -86,13 +86,13 @@ def format_table_text(game_state: Dict[str, Any]) -> str:
         if p.get("folded"):
             status = "❌ <i>Сбросил (Пас)</i>"
         elif p.get("all_in"):
-            status = f"🚀 <b>ALL-IN</b> ({bet} в банке)"
+            status = f"🚀 <b>ALL-IN</b> ({bet} монет в банке)"
         elif idx == current_actor_idx:
             status = f"🟢 <b>ХОДИТ</b> (ставка: {bet})"
         else:
             status = f"⏳ Ждет (ставка: {bet})"
             
-        players_text_list.append(f"{idx + 1}. {link} — Стек: <b>{stack}</b> | {status}")
+        players_text_list.append(f"{idx + 1}. {link} — Фишки: <b>{stack}</b> | {status}")
         
     players_block = "\n".join(players_text_list)
     
@@ -102,14 +102,14 @@ def format_table_text(game_state: Dict[str, Any]) -> str:
     return (
         f"🐺 <b>ТЕХАССКИЙ ХОЛДЕМ • {street_names.get(street, street).upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🏆 <b>Общий банк (Pot):</b> <code>{pot}</code> монет\n"
-        f"💵 <b>Текущая ставка стола:</b> <code>{current_bet}</code> монет\n\n"
-        f"🃏 <b>Карты на столе:</b>\n"
+        f"🏆 <b>Общий банк (на кону):</b> <code>{pot}</code> монет\n"
+        f"💵 <b>Ставка для уравнивания:</b> <code>{current_bet}</code> монет\n\n"
+        f"🃏 <b>Общие карты на столе:</b>\n"
         f"<b>{comm_rendered}</b>\n\n"
         f"👥 <b>Игроки за столом:</b>\n"
         f"{players_block}\n\n"
         f"👉 <b>Сейчас ходит:</b> {actor_mention} (⏱ {TURN_TIMEOUT}с)\n"
-        f"💡 <i>Нажмите «👀 Мои карты», чтобы тайно посмотреть свою руку!</i>"
+        f"💡 <i>Нажмите «👀 Посмотреть мои карты», чтобы тайно увидеть свою руку!</i>"
     )
 
 

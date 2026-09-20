@@ -12,7 +12,9 @@ from utils.user_link import get_user_link
 from utils.poker_evaluator import (
     format_cards,
     evaluate_7card_hand,
-    compare_hands
+    compare_hands,
+    card_badge,
+    card_full_name
 )
 from utils.poker_table_renderer import render_poker_table_image
 from .table import get_poker_game_key, cancel_poker_timer, render_community_cards
@@ -167,9 +169,10 @@ async def run_showdown(bot: Bot, chat_id: int):
             showdown_rows.append(f"• {p_link}: <i>сбросил (Пас)</i>")
         else:
             hole = p.get("hole_cards", [])
-            hole_str = f"[{hole[0]['rank']}{hole[0]['suit']}] [{hole[1]['rank']}{hole[1]['suit']}]"
+            c1_str = card_badge(hole[0])
+            c2_str = card_badge(hole[1])
             desc = p["evaluation"]["description"]
-            showdown_rows.append(f"• {p_link}: <b>{hole_str}</b> ➔ <i>{desc}</i>")
+            showdown_rows.append(f"• {p_link}: {c1_str} {c2_str} ➔ <b>{desc}</b>")
             
     showdown_text = "\n".join(showdown_rows)
     winners_block = "\n".join(winner_notices)
