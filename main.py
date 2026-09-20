@@ -198,12 +198,14 @@ async def main():
     except Exception as e:
         logging.error(f"Ошибка безопасной очистки игр на старте бота: {e}")
 
-    # Запуск фонового мониторинга жизненного цикла игр, порки рабов и СВО
+    # Запуск фонового мониторинга жизненного цикла игр, порки рабов, СВО и микрозаймов
     asyncio.create_task(game_lifetime_monitor(bot))
     from utils.whip_monitor import whip_monitor
     asyncio.create_task(whip_monitor(bot))
     from utils.war_monitor import war_monitor
     asyncio.create_task(war_monitor(bot))
+    from utils.loan_monitor import loan_monitor
+    asyncio.create_task(loan_monitor(bot))
 
     # Установка списка команд для отображения в Telegram с тегом @WolfMIREA_bot
     from aiogram.types import BotCommand
@@ -213,6 +215,11 @@ async def main():
         BotCommand(command="balance", description="Проверить игровой баланс"),
         BotCommand(command="top", description="Топ богатых игроков"),
         BotCommand(command="transfer", description="Передать монеты другому игроку"),
+        BotCommand(command="loan", description="Оформить микрозайм"),
+        BotCommand(command="repay", description="Погасить долг по займу"),
+        BotCommand(command="my_loan", description="Информация о моем займе"),
+        BotCommand(command="collector", description="Профиль и работа коллектора"),
+        BotCommand(command="debtors", description="Биржа просроченных должников"),
         BotCommand(command="my_army", description="Моя армия и войска"),
         BotCommand(command="army_help", description="Полное руководство по Армии и СВО"),
         BotCommand(command="svo", description="Специальная Военная Операция"),

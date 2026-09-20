@@ -69,6 +69,15 @@ async def balance_command(message: Message):
     if slaves:
         status_lines.append(f"⛓️ <b>Рабы:</b> {len(slaves)}/{max_slaves} чел.")
 
+    from utils.loan_manager import LoanManager
+    import time
+    loan_mgr = LoanManager()
+    loan = loan_mgr.get_user_loan(target_user_id)
+    if loan:
+        is_overdue = loan.get("status") == "overdue" or (loan.get("due_at", 0) < time.time())
+        tag = "🚨 <b>ПРОСРОЧЕН!</b>" if is_overdue else "⏳ активен"
+        status_lines.append(f"💳 <b>Микрозайм:</b> {loan.get('debt', 0):.2f} монет ({tag})")
+
     status_str = "\n".join(status_lines)
 
     await message.reply(

@@ -93,6 +93,21 @@ async def transfer_command(message: Message):
         await send_error_message(message, "Вы не можете перевести деньги самому себе.")
         return
 
+    # Проверка на арест счетов коллекторами при просроченном займе
+    from utils.loan_manager import LoanManager
+    loan_mgr = LoanManager()
+    if loan_mgr.has_overdue_loan(sender_id):
+        loan = loan_mgr.get_user_loan(sender_id)
+        debt_val = loan.get('debt', 0.0) if loan else 0.0
+        await send_error_message(
+            message,
+            f"🔒 <b>Счета заблокированы судебными приставами!</b>\n\n"
+            f"У вас имеется непогашенный просроченный микрозайм на сумму <b>{debt_val:.2f}</b> монет.\n"
+            f"Исходящие переводы заморожены до полного погашения задолженности.\n"
+            f"💡 Погасите долг: <code>/repay</code>"
+        )
+        return
+
     sender_balance = economy_manager.get_balance(sender_id)
     if sender_balance < amount:
         sender_link = get_user_link(sender_id)
