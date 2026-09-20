@@ -86,8 +86,9 @@ async def game_lifetime_monitor(bot: Bot):
                     continue
                 
                 started_at = game_data.get("started_at", 0)
-                # Лимит - 5 минут (300 секунд)
-                if started_at > 0 and (time.time() - started_at > 300):
+                is_poker = str(game_key).startswith("poker_")
+                max_lifetime = 3600 if is_poker else 300  # 1 час для покера, 5 минут для блекджека
+                if started_at > 0 and (time.time() - started_at > max_lifetime):
                     chat_id = game_data.get("chat_id")
                     bets = game_data.get("bets", {})
                     
@@ -103,12 +104,13 @@ async def game_lifetime_monitor(bot: Bot):
                     
                     # 2. Отправляем уведомление в чат
                     if chat_id:
-                        game_name = "Покер" if str(game_key).startswith("poker_") else "Блекджек"
+                        game_name = "Покер" if is_poker else "Блекджек"
+                        limit_str = "1 час" if is_poker else "5 минут"
                         refund_list = "\n".join(refunded_players) if refunded_players else "Ставок не было."
                         msg_text = (
                             f"⚠️ <b>ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ ИГРЫ</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"Сессия игры {game_name} превысила лимит времени (5 минут) и была остановлена.\n\n"
+                            f"Сессия игры {game_name} превысила лимит времени ({limit_str}) и была остановлена.\n\n"
                             f"💰 <b>Возвращенные ставки:</b>\n{refund_list}"
                         )
                         try:

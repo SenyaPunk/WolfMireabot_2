@@ -143,7 +143,7 @@ async def poker_command(message: Message, bot: Bot):
     if game_state_manager.game_exists(game_key):
         game_data = game_state_manager.get_game(game_key)
         started_at = game_data.get("started_at", 0) if isinstance(game_data, dict) else 0
-        if started_at == 0 or (time.time() - started_at > 300):
+        if started_at == 0 or (time.time() - started_at > 3600):
             logger.warning(f"Auto-cleaning stuck poker game {game_key}")
             await abort_poker_and_refund(bot, chat_id, game_key, game_state_manager, "Сброс зависшей сессии")
         else:
