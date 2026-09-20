@@ -162,26 +162,11 @@ async def poker_command(message: Message, bot: Bot):
             await send_error_message(message, "⚠️ Размер блайнда должен быть от 10 до 5000 монет!")
             return
             
-    # Проверяем баланс инициатора
     user_id = message.from_user.id
-    user_balance = economy_manager.get_balance(user_id)
-    min_required = blind * 2
-    if user_balance < min_required:
-        await send_error_message(
-            message, 
-            f"🚫 У вас недостаточно монет для игры с блайндом {blind}!\n"
-            f"💰 Ваш баланс: {user_balance} монет (требуется минимум {min_required})."
-        )
-        return
-
-    creator_name = message.from_user.first_name
     end_time = time.time() + RECRUITMENT_TIME
     
-    initial_players = [{
-        "user_id": user_id,
-        "username": message.from_user.username,
-        "first_name": message.from_user.first_name
-    }]
+    # Создатель не добавляется автоматически - за стол может сесть любой желающий
+    initial_players = []
     
     active_poker_recruiting[game_key] = {
         "chat_id": chat_id,
@@ -385,13 +370,9 @@ async def cb_poker_replay(callback: CallbackQuery, bot: Bot):
         await callback.answer(f"🚫 Недостаточно монет для игры (нужно {blind * 2}, у вас {bal})", show_alert=True)
         return
         
-    await callback.answer("🎰 Создаем новый стол...")
+    await callback.answer("🎰 Открываем стол для новой игры...")
     
-    initial_players = [{
-        "user_id": user_id,
-        "username": callback.from_user.username,
-        "first_name": callback.from_user.first_name
-    }]
+    initial_players = []
     end_time = time.time() + RECRUITMENT_TIME
     active_poker_recruiting[game_key] = {
         "chat_id": chat_id,

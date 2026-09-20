@@ -169,8 +169,10 @@ async def run_showdown(bot: Bot, chat_id: int):
             showdown_rows.append(f"• {p_link}: <i>сбросил (Пас)</i>")
         else:
             hole = p.get("hole_cards", [])
-            c1_str = card_badge(hole[0])
-            c2_str = card_badge(hole[1])
+            s1 = SUIT_SYMBOLS.get(hole[0]['suit'], hole[0]['suit'])
+            s2 = SUIT_SYMBOLS.get(hole[1]['suit'], hole[1]['suit'])
+            c1_str = f"[{hole[0]['rank']}{s1}]"
+            c2_str = f"[{hole[1]['rank']}{s2}]"
             desc = p["evaluation"]["description"]
             showdown_rows.append(f"• {p_link}: {c1_str} {c2_str} ➔ <b>{desc}</b>")
             

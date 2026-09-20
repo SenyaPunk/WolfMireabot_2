@@ -60,23 +60,16 @@ async def cb_poker_show_cards(callback: CallbackQuery):
     all_available = hole + community
     
     eval_res = evaluate_7card_hand(all_available)
-    c1_name = card_full_name(hole[0])
-    c2_name = card_full_name(hole[1])
+    s1 = SUIT_SYMBOLS.get(hole[0]['suit'], hole[0]['suit'])
+    s2 = SUIT_SYMBOLS.get(hole[1]['suit'], hole[1]['suit'])
+    cards_str = f"[{hole[0]['rank']}{s1}]  [{hole[1]['rank']}{s2}]"
     
     popup_text = (
-        f"🃏 ВАШИ КАРТЫ НА РУКАХ:\n"
-        f"• {c1_name}\n"
-        f"• {c2_name}\n\n"
-        f"📊 Текущая комбинация: {eval_res['description']}\n"
-        f"💰 Ваши фишки: {player['stack']} монет\n"
-        f"🪙 Вложено в банк: {player['total_bet']} монет\n\n"
-        f"💡 Подсказка по ходам:\n"
-        f"• Чек — если ставку до вас не повышали\n"
-        f"• Колл — уравнять текущую ставку\n"
-        f"• Рейз — поднять ставку\n"
-        f"• Пас — сбросить карты"
+        f"🃏 Ваши карты: {cards_str}\n"
+        f"📊 Комбинация: {eval_res['description']}\n"
+        f"💰 Фишки: {player['stack']} | В банке: {player['total_bet']}"
     )
-    await callback.answer(popup_text, show_alert=True)
+    await callback.answer(popup_text[:190], show_alert=True)
 
 
 @router.callback_query(F.data.startswith("poker_act:"))

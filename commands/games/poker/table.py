@@ -44,15 +44,18 @@ def get_poker_game_key(chat_id: int) -> str:
 
 
 def render_community_cards(community_cards: List[Dict[str, str]]) -> str:
-    """Отображает общие карты стола с мастями и названиями."""
+    """Отображает общие карты стола только смайликами и мастями без лишних слов."""
     cards_str = []
     for c in community_cards:
-        cards_str.append(card_badge(c))
+        rank = c.get('rank', '?')
+        suit = c.get('suit', 'S')
+        icon = SUIT_SYMBOLS.get(suit, suit)
+        cards_str.append(f"[{rank}{icon}]")
     
     # Дополняем до 5 закрытыми слотами
     remaining = 5 - len(community_cards)
     for _ in range(remaining):
-        cards_str.append("[ 🂠 Закрыто ]")
+        cards_str.append("🂠")
         
     return "  ".join(cards_str)
 
