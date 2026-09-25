@@ -35,6 +35,7 @@ class SlaveManager:
         self.slaves_file: Path = slaves_path
         self.slaves: Dict[int, Dict[str, Any]] = {}
         self.slave_slots: Dict[int, int] = {}
+        self.price_penalties: Dict[int, float] = {}
         self.load_slaves()
 
         # Очередь и фоновый поток для безопасной записи на диск
@@ -54,8 +55,13 @@ class SlaveManager:
                 temp_file = self.slaves_file.with_suffix(".tmp")
                 serializable_slaves = {str(k): v for k, v in data.get("slaves", {}).items()}
                 serializable_slots = {str(k): v for k, v in data.get("slave_slots", {}).items()}
+                serializable_penalties = {str(k): v for k, v in data.get("price_penalties", {}).items()}
                 with temp_file.open("w", encoding="utf-8") as f:
-                    json.dump({"slaves": serializable_slaves, "slave_slots": serializable_slots}, f, ensure_ascii=False, indent=2)
+                    json.dump({
+                        "slaves": serializable_slaves,
+                        "slave_slots": serializable_slots,
+                        "price_penalties": serializable_penalties
+                    }, f, ensure_ascii=False, indent=2)
 
                 for attempt in range(5):
                     try:
@@ -79,22 +85,31 @@ class SlaveManager:
                     self.slaves = {int(k): v for k, v in raw_slaves.items()}
                     raw_slots = data.get("slave_slots", {})
                     self.slave_slots = {int(k): int(v) for k, v in raw_slots.items()}
-                    logger.info(f"Загружено {len(self.slaves)} записей о рабах из {self.slaves_file}")
+                    raw_penalties = data.get("price_penalties", {})
+                    self.price_penalties = {int(k): float(v) for k, v in raw_penalties.items()}
+                    logger.info(f"Загружено {len(self.slaves)} записей о рабах и {len(self.price_penalties)} уценок из {self.slaves_file}")
             else:
                 logger.info(f"Файл рабства {self.slaves_file} не найден, создаем новый")
                 serializable_slaves = {str(k): v for k, v in self.slaves.items()}
                 serializable_slots = {str(k): v for k, v in self.slave_slots.items()}
+                serializable_penalties = {str(k): v for k, v in self.price_penalties.items()}
                 with self.slaves_file.open("w", encoding="utf-8") as f:
-                    json.dump({"slaves": serializable_slaves, "slave_slots": serializable_slots}, f, ensure_ascii=False, indent=2)
+                    json.dump({
+                        "slaves": serializable_slaves,
+                        "slave_slots": serializable_slots,
+                        "price_penalties": serializable_penalties
+                    }, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"Ошибка загрузки файлов рабства: {e}")
             self.slaves = {}
             self.slave_slots = {}
+            self.price_penalties = {}
 
     def save_slaves(self):
         snapshot = {
             "slaves": self.slaves.copy(),
-            "slave_slots": self.slave_slots.copy()
+            "slave_slots": self.slave_slots.copy(),
+            "price_penalties": self.price_penalties.copy()
         }
         self._write_queue.put(snapshot)
 
@@ -106,9 +121,53 @@ class SlaveManager:
         self.save_slaves()
 
     def get_user_price(self, user_id: int) -> float:
+        """
+        Рассчитывает рыночную стоимость человека.
+        Формула:
+        Base = 1000 + Balance * 1.3
+        Discount = (Overdue_Debt * 0.80) + Accumulated_Default_Penalty
+        Price = max(50.0, Base - Discount)
+        """
         balance = self.economy_manager.get_balance(user_id)
-        price = 1000.0 + balance * 1.3
-        return max(100.0, round(price, 2))
+        base_price = 1000.0 + balance * 1.3
+
+        # Снижение стоимости из-за долгов и неплатежеспособности
+        from utils.loan_manager import LoanManager
+        loan_mgr = LoanManager()
+        overdue_debt = loan_mgr.get_total_overdue_debt(user_id)
+        accumulated_penalty = self.price_penalties.get(user_id, 0.0)
+
+        discount = (overdue_debt * 0.80) + accumulated_penalty
+        final_price = max(50.0, round(base_price - discount, 2))
+        return final_price
+
+    def get_price_discount(self, user_id: int) -> float:
+        """Возвращает сумму, на которую была снижена стоимость пользователя из-за долгов."""
+        balance = self.economy_manager.get_balance(user_id)
+        base_price = 1000.0 + balance * 1.3
+        actual_price = self.get_user_price(user_id)
+        return max(0.0, round(base_price - actual_price, 2))
+
+    def apply_price_penalty(self, user_id: int, debt_amount: float) -> Tuple[float, float]:
+        """
+        Применяет штрафное снижение стоимости к должнику-банкроту.
+        Формула: уценка на max(50, min(300, debt_amount * 0.35)) монет.
+        Возвращает (новая_цена, размер_уценки).
+        """
+        old_price = self.get_user_price(user_id)
+        penalty_add = round(max(50.0, min(300.0, debt_amount * 0.35)), 2)
+        self.price_penalties[user_id] = round(self.price_penalties.get(user_id, 0.0) + penalty_add, 2)
+        self.save_slaves()
+        new_price = self.get_user_price(user_id)
+        discount = round(old_price - new_price, 2)
+        logger.info(f"Снижена стоимость пользователя {user_id}: {old_price} -> {new_price} (уценка: {discount})")
+        return new_price, discount
+
+    def reset_price_penalty(self, user_id: int):
+        """Сбрасывает штрафную уценку стоимости (при покупке в рабство или закрытии долгов)."""
+        if user_id in self.price_penalties:
+            del self.price_penalties[user_id]
+            self.save_slaves()
 
     def get_slave_data(self, slave_id: int) -> Optional[Dict[str, Any]]:
         return self.slaves.get(slave_id)

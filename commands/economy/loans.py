@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 
 from utils.economy_manager import EconomyManager
 from utils.loan_manager import LoanManager, TARIFFS, COLLECTOR_RANKS, SANCTION_LEVELS, LICENSE_FEE
+from utils.slave_manager import SlaveManager
 from utils.cooldown_manager import CooldownManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
 loan_manager = LoanManager()
+slave_manager = SlaveManager()
 cooldown_manager = CooldownManager()
 user_storage = UserStorage()
 
@@ -58,6 +60,9 @@ def make_loan_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🔹 Премиум (900–2000)", callback_data=f"loan_select:premium:{user_id}"),
             InlineKeyboardButton(text=my_loans_btn_text, callback_data=f"loan_info:{user_id}")
+        ],
+        [
+            InlineKeyboardButton(text="📜 Кредитная история", callback_data=f"loan_history:{user_id}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -132,7 +137,10 @@ async def loan_command(message: Message):
 
     # Если аргументов нет — выводим витрину тарифов
     hist = loan_manager.get_credit_history(user_id)
+    score = loan_manager.get_credit_score(user_id)
+    status_score, color_score, _ = loan_manager.get_credit_status(score)
     user_loans = loan_manager.get_user_loans(user_id)
+    discount = slave_manager.get_price_discount(user_id)
 
     status_line = "✅ Нет активных долгов"
     if user_loans:
@@ -142,19 +150,31 @@ async def loan_command(message: Message):
         st = f"🚨 {overdue_cnt} просрочено" if overdue_cnt > 0 else "⏳ Активны"
         status_line = f"{len(user_loans)}/5 шт. ({st}, долг: <b>{total_debt:.2f}</b> монет)"
 
+    discount_notice = ""
+    if discount > 0:
+        cur_price = slave_manager.get_user_price(user_id)
+        discount_notice = f"📉 <b>Уценка за долги:</b> -{discount:.2f} монет (цена на бирже: <b>{cur_price:.2f}</b>м)\n"
+
+    score_warning = ""
+    if score < 30:
+        score_warning = "🚫 <b>ВЫДАЧА ЗАЙМОВ ЗАБЛОКИРОВАНА (Черный список МФО)!</b>\n"
+
     text = (
         f"🏦 <b>МФО «Волк-Экспресс» — Быстрые Микрозаймы</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Клиент: {user_link}\n"
-        f"📊 Статус: {status_line}\n"
-        f"⭐ Успешно закрытых займов: <b>{hist.get('successful_loans', 0)}</b>\n\n"
+        f"📊 Статус займов: {status_line}\n"
+        f"⭐ Кредитный рейтинг: <b>{score}/100</b> ({color_score} {status_score})\n"
+        f"{discount_notice}"
+        f"{score_warning}"
+        f"📜 Закрыто вовремя: <b>{hist.get('successful_loans', 0)}</b> | Просрочек: <b>{hist.get('overdue_count', 0)}</b>\n\n"
         f"<b>Доступные тарифные планы:</b>\n"
         f"🔹 <b>«Лайт»</b>: 100–350 монет | Срок 36ч | Ставка 15%\n"
-        f"<i>Доступен всем желающим без проверок.</i>\n\n"
+        f"<i>Доступен при рейтинге от 30+ баллов.</i>\n\n"
         f"🔹 <b>«Стандарт»</b>: 350–900 монет | Срок 48ч | Ставка 20%\n"
-        f"<i>Требуется минимум 1 закрытый займ без нареканий.</i>\n\n"
+        f"<i>Требуется рейтинг от 50+ и закрытые займы.</i>\n\n"
         f"🔹 <b>«Премиум»</b>: 900–2000 монет | Срок 72ч (3 дня) | Ставка 25%\n"
-        f"<i>Для надежных клиентов (от 3 закрытых займов).</i>\n\n"
+        f"<i>Для надежных клиентов (рейтинг от 80+).</i>\n\n"
         f"💡 <i>Можно оформлять до 5 займов одновременно!\n"
         f"Выберите тариф кнопкой ниже или укажите вручную:\n"
         f"<code>/займ [лайт|стандарт|премиум] [сумма] [кол-во]</code>\n"
@@ -230,7 +250,11 @@ async def callback_loan_back(callback: CallbackQuery):
         return
 
     hist = loan_manager.get_credit_history(owner_id)
+    score = loan_manager.get_credit_score(owner_id)
+    status_score, color_score, _ = loan_manager.get_credit_status(score)
     user_loans = loan_manager.get_user_loans(owner_id)
+    discount = slave_manager.get_price_discount(owner_id)
+
     status_line = "✅ Нет активных долгов"
     if user_loans:
         total_debt = loan_manager.get_total_debt(owner_id)
@@ -239,19 +263,121 @@ async def callback_loan_back(callback: CallbackQuery):
         st = f"🚨 {overdue_cnt} просрочено" if overdue_cnt > 0 else "⏳ Активны"
         status_line = f"{len(user_loans)}/5 шт. ({st}, долг: <b>{total_debt:.2f}</b> монет)"
 
+    discount_notice = ""
+    if discount > 0:
+        cur_price = slave_manager.get_user_price(owner_id)
+        discount_notice = f"📉 <b>Уценка за долги:</b> -{discount:.2f} монет (цена на бирже: <b>{cur_price:.2f}</b>м)\n"
+
+    score_warning = ""
+    if score < 30:
+        score_warning = "🚫 <b>ВЫДАЧА ЗАЙМОВ ЗАБЛОКИРОВАНА (Черный список МФО)!</b>\n"
+
     user_link = get_user_link(owner_id)
     text = (
         f"🏦 <b>МФО «Волк-Экспресс» — Быстрые Микрозаймы</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Клиент: {user_link}\n"
-        f"📊 Статус: {status_line}\n"
-        f"⭐ Успешно закрытых займов: <b>{hist.get('successful_loans', 0)}</b>\n\n"
+        f"📊 Статус займов: {status_line}\n"
+        f"⭐ Кредитный рейтинг: <b>{score}/100</b> ({color_score} {status_score})\n"
+        f"{discount_notice}"
+        f"{score_warning}"
+        f"📜 Закрыто вовремя: <b>{hist.get('successful_loans', 0)}</b> | Просрочек: <b>{hist.get('overdue_count', 0)}</b>\n\n"
         f"<b>Доступные тарифные планы:</b>\n"
         f"🔹 <b>«Лайт»</b>: 100–350 монет | Срок 36ч | Ставка 15%\n\n"
         f"🔹 <b>«Стандарт»</b>: 350–900 монет | Срок 48ч | Ставка 20%\n\n"
         f"🔹 <b>«Премиум»</b>: 900–2000 монет | Срок 72ч (3 дня) | Ставка 25%\n"
     )
     await callback.message.edit_text(text, reply_markup=make_loan_keyboard(owner_id), parse_mode="HTML")
+    await callback.answer()
+
+
+def _render_credit_history(user_id: int) -> str:
+    user_name = user_storage.get_display_name(user_id)
+    user_link = get_user_link(user_id, user_name)
+    hist = loan_manager.get_credit_history(user_id)
+    score = loan_manager.get_credit_score(user_id)
+    status_score, color_score, _ = loan_manager.get_credit_status(score)
+    discount = slave_manager.get_price_discount(user_id)
+    owner_id = slave_manager.get_owner(user_id)
+
+    filled = max(0, min(10, int(score // 10)))
+    bar = "🟩" * filled + "⬜" * (10 - filled)
+
+    events = hist.get("events", [])
+    if events:
+        events_lines = []
+        for ev in reversed(events[-6:]):
+            ev_time = time.strftime("%d.%m %H:%M", time.localtime(ev.get("time", time.time())))
+            events_lines.append(f"• <code>[{ev_time}]</code> {ev.get('desc', '')}")
+        events_text = "\n".join(events_lines)
+    else:
+        events_text = "<i>Записи в бюро кредитных историй отсутствуют.</i>"
+
+    slave_status = ""
+    if owner_id:
+        owner_link = get_user_link(owner_id)
+        slave_status = f"⛓️ <b>Статус:</b> Раб (Владелец: {owner_link})\n<i>При нехватке денег долги списываются с баланса хозяина!</i>\n"
+    else:
+        slave_status = "🕊 <b>Статус:</b> Свободный гражданин\n<i>При дефолте снижается личная рыночная стоимость!</i>\n"
+
+    discount_info = ""
+    if discount > 0:
+        cur_price = slave_manager.get_user_price(user_id)
+        discount_info = f"📉 <b>Текущая уценка банкрота:</b> -{discount:.2f} монет (Рыночная цена: <b>{cur_price:.2f}</b>м)\n"
+
+    res = (
+        f"📜 <b>КРЕДИТНОЕ ДОСЬЕ И ИСТОРИЯ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Клиент:</b> {user_link}\n"
+        f"{slave_status}"
+        f"📊 <b>Кредитный рейтинг:</b> <b>{score}/100</b> ({color_score} {status_score})\n"
+        f"<code>[{bar}]</code>\n\n"
+        f"📈 <b>Исполнение обязательств:</b>\n"
+        f"• Всего взято в долг: <b>{hist.get('total_borrowed', 0):.2f}</b> монет\n"
+        f"• Успешно закрыто займов: <b>{hist.get('successful_loans', 0)}</b> шт.\n"
+        f"• Допущено просрочек: <b>{hist.get('overdue_count', 0)}</b> раз\n"
+        f"• Принудительных взысканий: <b>{hist.get('forced_collections', 0)}</b> раз\n"
+        f"• Списаний с владельца (субсидиарных): <b>{hist.get('owner_bailouts', 0)}</b> раз\n"
+        f"• Процедур уценки стоимости: <b>{hist.get('price_reductions', 0)}</b> раз\n"
+        f"{discount_info}\n"
+        f"📝 <b>Последние события:</b>\n"
+        f"{events_text}\n\n"
+        f"💡 <i>Рейтинг ниже 30 баллов блокирует получение любых займов. Оплачивайте долги вовремя!</i>"
+    )
+    return res
+
+
+@router.message(Command("credit_history", "ки", "история_кредитов", "кредитная_история"))
+async def credit_history_command(message: Message):
+    user_id = message.from_user.id
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+    else:
+        args = message.text.split()
+        if len(args) > 1:
+            raw = args[1].lstrip("@")
+            if raw.isdigit():
+                target_id = int(raw)
+            else:
+                target_id = user_storage.get_user_id(raw) or user_id
+        else:
+            target_id = user_id
+
+    text = _render_credit_history(target_id)
+    buttons = [[InlineKeyboardButton(text="🏦 Меню займов", callback_data=f"loan_back:{user_id}")]]
+    await message.reply(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("loan_history:"))
+async def callback_loan_history(callback: CallbackQuery):
+    owner_id = int(callback.data.split(":")[1])
+    if callback.from_user.id != owner_id:
+        await callback.answer("❌ Это досье открыто для другого игрока!", show_alert=True)
+        return
+
+    text = _render_credit_history(owner_id)
+    buttons = [[InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"loan_back:{owner_id}")]]
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
     await callback.answer()
 
 
@@ -713,26 +839,69 @@ async def collect_seize_command(message: Message):
 
     cooldown_manager.set_cooldown(cd_key)
 
-    if debtor_balance <= 0.5:
-        await message.reply(
-            f"🏚️ <b>РЕЙД ПРОВАЛЕН: В КАРМАНАХ ПУСТО!</b>\n"
+    owner_id = slave_manager.get_owner(debtor_id)
+
+    # Целевая сумма изъятия: до 50% баланса должника (или от 40 до 100 монет при малом балансе), но не более суммы долга
+    base_target = debtor_balance * 0.50 if debtor_balance > 20.0 else 50.0
+    seize_target = round(min(max(base_target, 20.0), current_debt), 2)
+
+    # 1. Списание с должника
+    from_debtor = round(min(debtor_balance, seize_target), 2)
+    if from_debtor > 0:
+        economy_manager.remove_money(debtor_id, from_debtor)
+
+    shortfall = round(seize_target - from_debtor, 2)
+    from_owner = 0.0
+    owner_link = None
+    discount_applied = 0.0
+    new_price = slave_manager.get_user_price(debtor_id)
+
+    # 2. Если у заемщика не хватает денег
+    if shortfall > 0:
+        if owner_id:
+            # Заемщик — чей-то раб: деньги снимаются с его владельца!
+            owner_link = get_user_link(owner_id)
+            owner_bal = economy_manager.get_balance(owner_id)
+            from_owner = round(min(owner_bal, shortfall), 2)
+            if from_owner > 0:
+                economy_manager.remove_money(owner_id, from_owner)
+                loan_manager.record_owner_bailout(debtor_id, owner_id, from_owner)
+
+            owner_shortfall = round(shortfall - from_owner, 2)
+            if owner_shortfall > 0:
+                new_price, discount_applied = slave_manager.apply_price_penalty(debtor_id, owner_shortfall)
+                loan_manager.record_price_reduction(debtor_id, discount_applied)
+        else:
+            # Заемщик свободен (владельца нет) -> наступает снижение его стоимости по формуле
+            new_price, discount_applied = slave_manager.apply_price_penalty(debtor_id, shortfall)
+            loan_manager.record_price_reduction(debtor_id, discount_applied)
+
+    total_collected = round(from_debtor + from_owner, 2)
+
+    if total_collected <= 0:
+        res_text = (
+            f"🏚️ <b>РЕЙД: ДЕФОЛТ И УЦЕНКА ДОЛЖНИКА!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🕵️ Коллектор: {collector_link}\n"
-            f"🎯 Должник: {debtor_link}\n\n"
-            f"У должника на балансе <b>0 монет</b>. Описывать нечего!\n"
-            f"Попробуйте применить <code>/наезд</code> или подождать, пока он заработает монеты.",
-            parse_mode="HTML"
+            f"🕵️ <b>Взыскатель:</b> {collector_link}\n"
+            f"🎯 <b>Должник:</b> {debtor_link}\n\n"
+            f"У должника на счетах <b>0.00 монет</b>!\n"
         )
+        if owner_id:
+            res_text += (
+                f"👑 Владелец {owner_link} также не имеет средств для покрытия долгов раба.\n"
+                f"📉 <b>Рыночная стоимость раба снижена на -{discount_applied:.2f} монет</b>!\n"
+                f"💎 Новая цена выкупа/продажи: <b>{new_price:.2f}</b> монет."
+            )
+        else:
+            res_text += (
+                f"🕊 Так как гражданин свободен, активирована процедура банкротства:\n"
+                f"📉 <b>Его рыночная стоимость уценена на -{discount_applied:.2f} монет</b>!\n"
+                f"⛓️ Теперь любой желающий может купить его в рабство всего за <b>{new_price:.2f}</b> монет: <code>/buy_slave</code>!"
+            )
+        await message.reply(res_text, parse_mode="HTML")
         return
 
-    # Изъятие: изымается до 50% баланса должника, но не более суммы долга
-    seize_amount = round(min(debtor_balance * 0.50, current_debt), 2)
-    if seize_amount < 1.0:
-        seize_amount = min(debtor_balance, current_debt)
-
-    economy_manager.remove_money(debtor_id, seize_amount)
-    collector_pay, mfi_pay, is_closed = loan_manager.process_collector_success(collector_id, debtor_id, seize_amount)
-
+    collector_pay, mfi_pay, is_closed = loan_manager.process_collector_success(collector_id, debtor_id, total_collected)
     rank_name = COLLECTOR_RANKS.get(coll.get("rank", "trainee"), {}).get("title", "Коллектор")
 
     res_text = (
@@ -740,11 +909,21 @@ async def collect_seize_command(message: Message):
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🕵️ <b>Взыскатель:</b> {collector_link} ({rank_name})\n"
         f"🎯 <b>Должник:</b> {debtor_link}\n\n"
-        f"⚖️ С банковского счета должника принудительно списано: <b>{seize_amount:.2f}</b> монет!\n"
-        f"💵 <b>Комиссия коллектора:</b> <b>+{collector_pay:.2f}</b> монет\n"
+        f"⚖️ С баланса должника списано: <b>{from_debtor:.2f}</b> монет\n"
+    )
+    if from_owner > 0:
+        res_text += (
+            f"👑 <b>Списано с владельца {owner_link}:</b> <b>{from_owner:.2f}</b> монет!\n"
+            f"<i>(Субсидиарная ответственность рабовладельца за долги своего раба)</i>\n"
+        )
+    if discount_applied > 0:
+        res_text += (
+            f"📉 <b>Штрафная уценка стоимости:</b> -{discount_applied:.2f} монет (Рыночная цена: <b>{new_price:.2f}</b>м)\n"
+        )
+    res_text += (
+        f"\n💵 <b>Комиссия коллектора:</b> <b>+{collector_pay:.2f}</b> монет\n"
         f"🏦 <b>В счет долга МФО:</b> {mfi_pay:.2f} монет\n"
     )
-
     if is_closed:
         res_text += f"\n🎉 <b>ВСЕ ПРОСРОЧЕННЫЕ ДОЛГИ ЗАКРЫТЫ!</b> Дело сдано в архив, контракт завершен!"
     else:
@@ -823,16 +1002,36 @@ async def collect_fight_command(message: Message):
     # 2. Успешный силовой прессинг (выбивание монет)
     current_debt = loan_manager.get_total_overdue_debt(debtor_id)
     debtor_bal = economy_manager.get_balance(debtor_id)
+    owner_id = slave_manager.get_owner(debtor_id)
 
-    # Если у должника есть монеты — выбивается 30-70%
-    if debtor_bal > 5.0:
-        seize = round(min(debtor_bal * random.uniform(0.3, 0.7), current_debt), 2)
-        economy_manager.remove_money(debtor_id, seize)
-    else:
-        # У должника нет денег, но под прессингом он занимает/находит экстренные 30-60 монет
-        seize = round(min(random.uniform(30.0, 60.0), current_debt), 2)
+    target_seize = round(min(random.uniform(40.0, 90.0), current_debt), 2)
+    from_debtor = round(min(debtor_bal, target_seize), 2)
+    if from_debtor > 0:
+        economy_manager.remove_money(debtor_id, from_debtor)
 
-    col_share, mfi_share, is_closed = loan_manager.process_collector_success(collector_id, debtor_id, seize)
+    shortfall = round(target_seize - from_debtor, 2)
+    from_owner = 0.0
+    owner_link = None
+    discount_applied = 0.0
+    new_price = slave_manager.get_user_price(debtor_id)
+
+    if shortfall > 0:
+        if owner_id:
+            owner_link = get_user_link(owner_id)
+            owner_bal = economy_manager.get_balance(owner_id)
+            from_owner = round(min(owner_bal, shortfall), 2)
+            if from_owner > 0:
+                economy_manager.remove_money(owner_id, from_owner)
+                loan_manager.record_owner_bailout(debtor_id, owner_id, from_owner)
+            owner_shortfall = round(shortfall - from_owner, 2)
+            if owner_shortfall > 0:
+                new_price, discount_applied = slave_manager.apply_price_penalty(debtor_id, owner_shortfall)
+                loan_manager.record_price_reduction(debtor_id, discount_applied)
+        else:
+            new_price, discount_applied = slave_manager.apply_price_penalty(debtor_id, shortfall)
+            loan_manager.record_price_reduction(debtor_id, discount_applied)
+
+    total_collected = round(from_debtor + from_owner, 2)
 
     phrase = random.choice([
         "прижал должника к батарее и убедил внести платеж",
@@ -841,12 +1040,45 @@ async def collect_fight_command(message: Message):
         "напомнил должнику о хрупкости его коленных чашечек"
     ])
 
+    if total_collected <= 0:
+        res_text = (
+            f"🥊 <b>СИЛОВОЙ НАЕЗД: В КАРМАНАХ ПУСТО!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Коллектор {collector_link} {phrase}!\n\n"
+            f"Однако у должника {debtor_link} абсолютно нет монет!\n"
+        )
+        if owner_id:
+            res_text += (
+                f"У владельца {owner_link} также пусто на счетах.\n"
+                f"📉 <b>Рыночная стоимость раба снижена на -{discount_applied:.2f} монет</b>! (Текущая цена: <b>{new_price:.2f}</b>м)"
+            )
+        else:
+            res_text += (
+                f"🕊 Свободный должник объявлен несостоятельным банкротом:\n"
+                f"📉 <b>Его стоимость снижена на -{discount_applied:.2f} монет</b>! Купить его в рабство: <code>/buy_slave</code> (цена <b>{new_price:.2f}</b>м)"
+            )
+        await message.reply(res_text, parse_mode="HTML")
+        return
+
+    col_share, mfi_share, is_closed = loan_manager.process_collector_success(collector_id, debtor_id, total_collected)
+
     text = (
         f"🥊 <b>СИЛОВОЙ НАЕЗД УВЕНЧАЛСЯ УСПЕХОМ!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Коллектор {collector_link} {phrase}!\n\n"
-        f"🎯 Должник {debtor_link} в панике выплатил: <b>{seize:.2f}</b> монет!\n"
-        f"💵 <b>Доля коллектора:</b> <b>+{col_share:.2f}</b> монет\n"
+        f"🎯 Выбито с должника {debtor_link}: <b>{from_debtor:.2f}</b> монет!\n"
+    )
+    if from_owner > 0:
+        text += (
+            f"👑 <b>Списано с баланса хозяина {owner_link}:</b> <b>{from_owner:.2f}</b> монет!\n"
+            f"<i>(Хозяин ответил за долги своего раба)</i>\n"
+        )
+    if discount_applied > 0:
+        text += (
+            f"📉 <b>Штрафная уценка стоимости:</b> -{discount_applied:.2f} монет (Рыночная цена: <b>{new_price:.2f}</b>м)\n"
+        )
+    text += (
+        f"\n💵 <b>Доля коллектора:</b> <b>+{col_share:.2f}</b> монет\n"
         f"🏦 <b>Погашено долга:</b> {mfi_share:.2f} монет\n"
     )
     if is_closed:

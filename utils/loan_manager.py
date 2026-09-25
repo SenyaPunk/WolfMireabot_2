@@ -251,23 +251,146 @@ class LoanManager:
         ), 2)
 
     def get_credit_history(self, user_id: int) -> Dict[str, Any]:
-        """Возвращает кредитную историю пользователя."""
+        """Возвращает кредитную историю пользователя с гарантией всех полей."""
         if user_id not in self.credit_history:
             self.credit_history[user_id] = {
+                "score": 60,
                 "successful_loans": 0,
                 "overdue_count": 0,
+                "forced_collections": 0,
+                "owner_bailouts": 0,
+                "price_reductions": 0,
                 "total_borrowed": 0.0,
-                "total_repaid": 0.0
+                "total_repaid": 0.0,
+                "events": []
             }
+        else:
+            hist = self.credit_history[user_id]
+            hist.setdefault("score", 60)
+            hist.setdefault("successful_loans", 0)
+            hist.setdefault("overdue_count", 0)
+            hist.setdefault("forced_collections", 0)
+            hist.setdefault("owner_bailouts", 0)
+            hist.setdefault("price_reductions", 0)
+            hist.setdefault("total_borrowed", 0.0)
+            hist.setdefault("total_repaid", 0.0)
+            hist.setdefault("events", [])
         return self.credit_history[user_id]
 
+    def get_credit_score(self, user_id: int) -> int:
+        """
+        Рассчитывает динамический кредитный рейтинг заемщика (0 - 100 баллов).
+        Формула:
+        Base = 60
+        + min(40, successful_loans * 10)
+        - overdue_count * 15
+        - forced_collections * 10
+        - owner_bailouts * 15
+        - price_reductions * 15
+        - 20 (если прямо сейчас есть просроченные активные займы)
+        Score = max(0, min(100, Score))
+        """
+        hist = self.get_credit_history(user_id)
+        user_loans = self.get_user_loans(user_id)
+        now = time.time()
+        has_active_overdue = any(l.get("status") == "overdue" or l.get("due_at", 0) < now for l in user_loans)
+
+        score = 60
+        score += min(40, hist.get("successful_loans", 0) * 10)
+        score -= hist.get("overdue_count", 0) * 15
+        score -= hist.get("forced_collections", 0) * 10
+        score -= hist.get("owner_bailouts", 0) * 15
+        score -= hist.get("price_reductions", 0) * 15
+        if has_active_overdue:
+            score -= 20
+
+        score = max(0, min(100, score))
+        hist["score"] = score
+        return score
+
+    def get_credit_status(self, score: int) -> Tuple[str, str, str]:
+        """Возвращает (текстовый статус, эмодзи, описание рейтинга)."""
+        if score >= 80:
+            return "Отличная", "🟢", "Высокий уровень надежности. Доступны любые тарифные планы."
+        elif score >= 50:
+            return "Хорошая", "🟡", "Стандартный уровень надежности. Доступны тарифы Лайт и Стандарт."
+        elif score >= 30:
+            return "Низкая", "🟠", "Повышенный риск дефолта. Доступен только минимальный тариф Лайт."
+        else:
+            return "Критическая (Черный список)", "🔴", "Слишком плохая история. Выдача займов запрещена!"
+
+    def add_credit_event(self, user_id: int, event_type: str, desc: str):
+        """Добавляет запись в ленту событий кредитной истории (хранятся последние 10)."""
+        hist = self.get_credit_history(user_id)
+        record = {
+            "time": time.time(),
+            "type": event_type,
+            "desc": desc
+        }
+        events = hist.setdefault("events", [])
+        events.append(record)
+        if len(events) > 10:
+            hist["events"] = events[-10:]
+        self.save_data()
+
+    def record_owner_bailout(self, debtor_id: int, owner_id: int, amount: float):
+        """Фиксирует принудительное списание с рабовладельца из-за неплатежеспособности раба."""
+        hist = self.get_credit_history(debtor_id)
+        hist["owner_bailouts"] = hist.get("owner_bailouts", 0) + 1
+        hist["forced_collections"] = hist.get("forced_collections", 0) + 1
+        self.add_credit_event(
+            debtor_id,
+            "owner_bailout",
+            f"Списание {amount:.2f}м со счета хозяина (ID: {owner_id}) из-за отсутствия денег у раба (-15 рейтинга)"
+        )
+        self.save_data()
+
+    def record_price_reduction(self, debtor_id: int, discount: float):
+        """Фиксирует штрафное снижение рыночной стоимости свободного должника."""
+        hist = self.get_credit_history(debtor_id)
+        hist["price_reductions"] = hist.get("price_reductions", 0) + 1
+        hist["forced_collections"] = hist.get("forced_collections", 0) + 1
+        self.add_credit_event(
+            debtor_id,
+            "price_reduction",
+            f"Банкротство: рыночная стоимость человека снижена на -{discount:.2f}м (-15 рейтинга)"
+        )
+        self.save_data()
+
     def can_take_loan(self, user_id: int, tariff_key: str, amount: float, count: int = 1) -> Tuple[bool, str]:
-        """Проверяет возможность взять один или несколько займов."""
+        """Проверяет возможность взять один или несколько займов с учетом кредитной истории."""
         if tariff_key not in TARIFFS:
             return False, "❌ Указан неверный тариф займа."
 
         if count < 1 or count > MAX_ACTIVE_LOANS:
             return False, f"❌ За раз можно оформить от 1 до {MAX_ACTIVE_LOANS} займов."
+
+        # 1. Проверка кредитной истории и рейтинга
+        score = self.get_credit_score(user_id)
+        status_name, emoji, _ = self.get_credit_status(score)
+        if score < 30:
+            return False, (
+                f"❌ <b>ОТКАЗАНО СЛУЖБОЙ БЕЗОПАСНОСТИ МФО!</b>\n\n"
+                f"Ваш кредитный рейтинг: <b>{score}/100</b> ({emoji} <i>{status_name}</i>).\n"
+                f"Кредитная история признана неприемлемой из-за частых просрочек и долгов.\n\n"
+                f"🚫 <b>Выдача кредитов для вас ЗАБЛОКИРОВАНА!</b>\n"
+                f"💡 <i>Погасите имеющиеся задолженности (/repay) и работайте (/work), чтобы восстановить рейтинг.</i>"
+            )
+
+        tariff = TARIFFS[tariff_key]
+        if tariff_key == "standard" and score < 50:
+            return False, (
+                f"❌ <b>НЕДОСТАТОЧНЫЙ КРЕДИТНЫЙ РЕЙТИНГ!</b>\n\n"
+                f"Для тарифа «{tariff['name']}» требуется кредитный рейтинг не менее <b>50/100</b> (у вас: <b>{score}/100</b>).\n"
+                f"Вам доступен только тариф «Лайт»."
+            )
+
+        if tariff_key == "premium" and score < 80:
+            return False, (
+                f"❌ <b>НЕДОСТАТОЧНЫЙ КРЕДИТНЫЙ РЕЙТИНГ!</b>\n\n"
+                f"Для тарифа «{tariff['name']}» требуется кредитный рейтинг не менее <b>80/100</b> (у вас: <b>{score}/100</b>).\n"
+                f"Закрывайте займы вовремя без просрочек для повышения рейтинга."
+            )
 
         user_loans = self.get_user_loans(user_id)
 
@@ -286,7 +409,6 @@ class LoanManager:
             else:
                 return False, f"❌ Вы можете оформить максимум ещё <b>{rem}</b> шт. (сейчас активно: {len(user_loans)} из {MAX_ACTIVE_LOANS})."
 
-        tariff = TARIFFS[tariff_key]
         hist = self.get_credit_history(user_id)
         if hist.get("successful_loans", 0) < tariff["req_loans"]:
             return False, f"❌ Для тарифа «{tariff['name']}» необходимо минимум {tariff['req_loans']} успешно закрытых займов (у вас: {hist.get('successful_loans', 0)})."
@@ -340,6 +462,7 @@ class LoanManager:
         hist["total_borrowed"] = round(hist.get("total_borrowed", 0.0) + total_received, 2)
 
         self.economy_manager.add_money(user_id, total_received)
+        self.add_credit_event(user_id, "loan_taken", f"Оформлен займ «{tariff['name']}» ({count} шт.) на сумму {total_received:.2f}м")
         self.save_data()
 
         logger.info(f"User {user_id} took {count} loan(s) of tariff {tariff_key}, amount {amount} each, total received {total_received}")
@@ -405,8 +528,10 @@ class LoanManager:
                 was_overdue = (loan.get("status") == "overdue" or loan.get("due_at", 0) < now)
                 if was_overdue:
                     hist["overdue_count"] = hist.get("overdue_count", 0) + 1
+                    self.add_credit_event(user_id, "repaid_overdue", f"Погашен просроченный займ #{lid} «{t_name}»")
                 else:
                     hist["successful_loans"] = hist.get("successful_loans", 0) + 1
+                    self.add_credit_event(user_id, "repaid_success", f"Займ #{lid} «{t_name}» успешно закрыт вовремя (+10 рейтинга)")
 
                 if loan in self.loans.get(user_id, []):
                     self.loans[user_id].remove(loan)
@@ -419,6 +544,9 @@ class LoanManager:
         # Очищаем запись пользователя, если займов больше нет
         if user_id in self.loans and len(self.loans[user_id]) == 0:
             del self.loans[user_id]
+            # Сбрасываем штрафную уценку стоимости, так как долги закрыты
+            from utils.slave_manager import SlaveManager
+            SlaveManager().reset_price_penalty(user_id)
             # Снимаем контракт коллектора, если был активен
             for coll_data in self.collectors.values():
                 if coll_data.get("active_contract", {}).get("debtor_id") == user_id:

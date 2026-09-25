@@ -5,6 +5,8 @@ import time
 from aiogram import Bot
 
 from utils.loan_manager import LoanManager, PENALTY_INTERVAL, PENALTY_RATE, MAX_DEBT_MULTIPLIER
+from utils.economy_manager import EconomyManager
+from utils.slave_manager import SlaveManager
 from utils.user_link import get_user_link
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,8 @@ async def loan_monitor(bot: Bot):
     # Ждем старта бота
     await asyncio.sleep(20)
     loan_manager = LoanManager()
+    economy_manager = EconomyManager()
+    slave_manager = SlaveManager()
 
     logger.info("Фоновый монитор микрозаймов и коллекторов запущен.")
 
@@ -76,6 +80,42 @@ async def loan_monitor(bot: Bot):
                                 loan["last_penalty_at"] = now
                                 loan_manager.save_data()
                                 logger.info(f"Начислена пеня {penalty} пользователю {user_id} по займу #{loan_id}. Новый долг: {new_debt}")
+
+                                # Проверяем платежеспособность заемщика
+                                debtor_bal = economy_manager.get_balance(user_id)
+                                if debtor_bal <= 0.5:
+                                    owner_id = slave_manager.get_owner(user_id)
+                                    if owner_id:
+                                        # Если заемщик — чей-то раб, пеня взыскивается с баланса владельца!
+                                        owner_bal = economy_manager.get_balance(owner_id)
+                                        from_owner = round(min(owner_bal, penalty), 2)
+                                        if from_owner > 0:
+                                            economy_manager.remove_money(owner_id, from_owner)
+                                            loan_manager.record_owner_bailout(user_id, owner_id, from_owner)
+                                            # Погашаем часть пени за счет хозяина
+                                            loan["debt"] = round(max(0.0, new_debt - from_owner), 2)
+                                            loan_manager.save_data()
+                                            try:
+                                                await bot.send_message(
+                                                    chat_id=owner_id,
+                                                    text=(
+                                                        f"🚨 <b>Списание за долги раба!</b>\n"
+                                                        f"У вашего раба (ID: {user_id}) просрочен займ #{loan_id}.\n"
+                                                        f"С вашего баланса автоматически списана пеня <b>{from_owner:.2f}</b> монет!"
+                                                    ),
+                                                    parse_mode="HTML"
+                                                )
+                                            except Exception:
+                                                pass
+
+                                        rem_shortfall = round(penalty - from_owner, 2)
+                                        if rem_shortfall > 0:
+                                            _, disc = slave_manager.apply_price_penalty(user_id, rem_shortfall)
+                                            loan_manager.record_price_reduction(user_id, disc)
+                                    else:
+                                        # Владельца нет (свободен) -> снижение стоимости человека (банкротство)
+                                        _, disc = slave_manager.apply_price_penalty(user_id, penalty)
+                                        loan_manager.record_price_reduction(user_id, disc)
 
             # 2. Проверка контрактов коллекторов
             collectors_snapshot = list(loan_manager.collectors.items())

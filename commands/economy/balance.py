@@ -71,6 +71,14 @@ async def balance_command(message: Message):
 
     from utils.loan_manager import LoanManager
     loan_mgr = LoanManager()
+    score = loan_mgr.get_credit_score(target_user_id)
+    score_status, color, _ = loan_mgr.get_credit_status(score)
+    status_lines.append(f"⭐ <b>Кредитный рейтинг:</b> {score}/100 ({color} {score_status})")
+
+    discount = slave_manager.get_price_discount(target_user_id)
+    if discount > 0:
+        status_lines.append(f"📉 <b>Уценка за долги:</b> -{discount:.2f} монет (дефолт)")
+
     user_loans = loan_mgr.get_user_loans(target_user_id)
     if user_loans:
         total_debt = loan_mgr.get_total_debt(target_user_id)

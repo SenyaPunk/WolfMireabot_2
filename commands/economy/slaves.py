@@ -116,6 +116,7 @@ async def buy_slave_command(message: Message):
         return
 
     # 3. Расчет цены и проверка баланса покупателя
+    discount = slave_manager.get_price_discount(target_user_id)
     price = slave_manager.get_user_price(target_user_id)
     buyer_balance = economy_manager.get_balance(buyer_id)
 
@@ -131,13 +132,20 @@ async def buy_slave_command(message: Message):
     # Списываем деньги и оформляем рабство
     economy_manager.remove_money(buyer_id, price)
     slave_manager.buy_slave(target_user_id, buyer_id, price)
+    if discount > 0:
+        slave_manager.reset_price_penalty(target_user_id)
+
+    discount_notice = ""
+    if discount > 0:
+        discount_notice = f"\n📉 <i>Раб приобретен с банкротной скидкой -{discount:.2f} монет за долги МФО! Штрафная уценка аннулирована.</i>\n"
 
     await message.reply(
         f"⛓️ <b>УСПЕШНАЯ ПОКУПКА РАБА</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n\n"
         f"👤 <b>Покупатель:</b> {buyer_link}\n"
         f"⛓️ <b>Новый раб:</b> {target_link}\n"
-        f"💰 <b>Цена покупки:</b> {price:.2f} монет\n\n"
+        f"💰 <b>Цена покупки:</b> {price:.2f} монет\n"
+        f"{discount_notice}\n"
         f"💸 <i>Теперь 30% всех доходов {target_link} от работы и казино автоматически перечисляются хозяину!</i>",
         parse_mode="HTML",
         disable_web_page_preview=True
