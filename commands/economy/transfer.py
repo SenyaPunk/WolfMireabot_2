@@ -97,12 +97,11 @@ async def transfer_command(message: Message):
     from utils.loan_manager import LoanManager
     loan_mgr = LoanManager()
     if loan_mgr.has_overdue_loan(sender_id):
-        loan = loan_mgr.get_user_loan(sender_id)
-        debt_val = loan.get('debt', 0.0) if loan else 0.0
+        debt_val = loan_mgr.get_total_overdue_debt(sender_id)
         await send_error_message(
             message,
             f"🔒 <b>Счета заблокированы судебными приставами!</b>\n\n"
-            f"У вас имеется непогашенный просроченный микрозайм на сумму <b>{debt_val:.2f}</b> монет.\n"
+            f"У вас имеются непогашенные просроченные займы на сумму <b>{debt_val:.2f}</b> монет.\n"
             f"Исходящие переводы заморожены до полного погашения задолженности.\n"
             f"💡 Погасите долг: <code>/repay</code>"
         )

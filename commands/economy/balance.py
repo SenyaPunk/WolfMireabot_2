@@ -70,13 +70,14 @@ async def balance_command(message: Message):
         status_lines.append(f"⛓️ <b>Рабы:</b> {len(slaves)}/{max_slaves} чел.")
 
     from utils.loan_manager import LoanManager
-    import time
     loan_mgr = LoanManager()
-    loan = loan_mgr.get_user_loan(target_user_id)
-    if loan:
-        is_overdue = loan.get("status") == "overdue" or (loan.get("due_at", 0) < time.time())
-        tag = "🚨 <b>ПРОСРОЧЕН!</b>" if is_overdue else "⏳ активен"
-        status_lines.append(f"💳 <b>Микрозайм:</b> {loan.get('debt', 0):.2f} монет ({tag})")
+    user_loans = loan_mgr.get_user_loans(target_user_id)
+    if user_loans:
+        total_debt = loan_mgr.get_total_debt(target_user_id)
+        has_overdue = loan_mgr.has_overdue_loan(target_user_id)
+        tag = "🚨 <b>ПРОСРОЧЕН!</b>" if has_overdue else "⏳ активен"
+        count_str = f" ({len(user_loans)} шт.)" if len(user_loans) > 1 else ""
+        status_lines.append(f"💳 <b>Микрозаймы{count_str}:</b> {total_debt:.2f} монет ({tag})")
 
     status_str = "\n".join(status_lines)
 

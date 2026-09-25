@@ -47,6 +47,9 @@ def format_duration(seconds: float) -> str:
 # =================================================================
 
 def make_loan_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    user_loans = loan_manager.get_user_loans(user_id)
+    loans_count = len(user_loans)
+    my_loans_btn_text = f"📊 Мои займы ({loans_count}/5)" if loans_count > 0 else "📊 Мои займы"
     buttons = [
         [
             InlineKeyboardButton(text="🔹 Лайт (100–350)", callback_data=f"loan_select:light:{user_id}"),
@@ -54,7 +57,7 @@ def make_loan_keyboard(user_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🔹 Премиум (900–2000)", callback_data=f"loan_select:premium:{user_id}"),
-            InlineKeyboardButton(text="📊 Мой займ", callback_data=f"loan_info:{user_id}")
+            InlineKeyboardButton(text=my_loans_btn_text, callback_data=f"loan_info:{user_id}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -66,7 +69,7 @@ async def loan_command(message: Message):
     user_name = user_storage.get_display_name(user_id)
     user_link = get_user_link(user_id, user_name)
 
-    # Проверяем аргументы: /займ [тариф] [сумма]
+    # Проверяем аргументы: /займ [тариф] [сумма] [кол-во]
     args = message.text.split()
     if len(args) >= 3:
         tariff_input = args[1].lower()
@@ -79,40 +82,65 @@ async def loan_command(message: Message):
             tariff_key = "premium"
 
         try:
-            amount = float(args[2])
+            amount = float(args[2].replace(",", "."))
         except ValueError:
             amount = None
 
+        count = 1
+        if len(args) >= 4 and args[3].isdigit():
+            count = int(args[3])
+
         if tariff_key and amount is not None:
-            ok, res_text, loan_data = loan_manager.take_loan(user_id, tariff_key, amount)
+            ok, res_text, created_loans = loan_manager.take_loan(user_id, tariff_key, amount, count)
             if not ok:
                 await send_error_message(message, res_text)
                 return
 
-            t_name = loan_data["tariff_name"]
-            debt = loan_data["debt"]
-            due_str = format_duration(loan_data["due_at"] - time.time())
-            await message.reply(
-                f"🏦 <b>МФО «Волк-Экспресс» | Займ выдан!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>Заемщик:</b> {user_link}\n"
-                f"📋 <b>Тариф:</b> {t_name}\n"
-                f"💵 <b>Получено на руки:</b> {amount:.2f} монет\n"
-                f"📈 <b>К возврату:</b> {debt:.2f} монет (+{int(loan_data['rate']*100)}%)\n"
-                f"⏳ <b>Срок погашения:</b> {due_str}\n\n"
-                f"⚠️ <i>При просрочке начисляются штрафные пени, а дело передается коллекторам! Погасить: /repay</i>",
-                parse_mode="HTML"
-            )
+            t_name = created_loans[0]["tariff_name"]
+            total_borrowed = amount * count
+            total_debt = sum(l["debt"] for l in created_loans)
+            rate_pct = int(created_loans[0]["rate"] * 100)
+            due_str = format_duration(created_loans[0]["due_at"] - time.time())
+
+            if count == 1:
+                await message.reply(
+                    f"🏦 <b>МФО «Волк-Экспресс» | Займ #{created_loans[0]['id']} выдан!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 <b>Заемщик:</b> {user_link}\n"
+                    f"📋 <b>Тариф:</b> {t_name}\n"
+                    f"💵 <b>Получено на руки:</b> {amount:.2f} монет\n"
+                    f"📈 <b>К возврату:</b> {total_debt:.2f} монет (+{rate_pct}%)\n"
+                    f"⏳ <b>Срок погашения:</b> {due_str}\n\n"
+                    f"⚠️ <i>При просрочке начисляются штрафные пени, а дело передается коллекторам! Погасить: /repay</i>",
+                    parse_mode="HTML"
+                )
+            else:
+                ids_str = ", ".join(f"#{l['id']}" for l in created_loans)
+                await message.reply(
+                    f"🏦 <b>МФО «Волк-Экспресс» | Оформлено займов: {count} шт.!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 <b>Заемщик:</b> {user_link}\n"
+                    f"📋 <b>Тариф:</b> {t_name}\n"
+                    f"🔢 <b>Номера займов:</b> {ids_str}\n"
+                    f"💵 <b>Получено на руки:</b> <b>{total_borrowed:.2f}</b> монет ({amount:.2f} × {count})\n"
+                    f"📈 <b>Общий долг к возврату:</b> <b>{total_debt:.2f}</b> монет (+{rate_pct}%)\n"
+                    f"⏳ <b>Срок погашения:</b> {due_str}\n\n"
+                    f"⚠️ <i>При просрочке начисляются штрафные пени, а дела передаются коллекторам! Погасить: /repay</i>",
+                    parse_mode="HTML"
+                )
             return
 
     # Если аргументов нет — выводим витрину тарифов
     hist = loan_manager.get_credit_history(user_id)
-    active_loan = loan_manager.get_user_loan(user_id)
+    user_loans = loan_manager.get_user_loans(user_id)
 
     status_line = "✅ Нет активных долгов"
-    if active_loan:
-        st = "🚨 ПРОСРОЧЕН" if active_loan.get("status") == "overdue" else "⏳ Активен"
-        status_line = f"{st}: <b>{active_loan.get('debt', 0):.2f}</b> монет"
+    if user_loans:
+        total_debt = loan_manager.get_total_debt(user_id)
+        now = time.time()
+        overdue_cnt = sum(1 for l in user_loans if l.get("status") == "overdue" or l.get("due_at", 0) < now)
+        st = f"🚨 {overdue_cnt} просрочено" if overdue_cnt > 0 else "⏳ Активны"
+        status_line = f"{len(user_loans)}/5 шт. ({st}, долг: <b>{total_debt:.2f}</b> монет)"
 
     text = (
         f"🏦 <b>МФО «Волк-Экспресс» — Быстрые Микрозаймы</b>\n"
@@ -127,7 +155,10 @@ async def loan_command(message: Message):
         f"<i>Требуется минимум 1 закрытый займ без нареканий.</i>\n\n"
         f"🔹 <b>«Премиум»</b>: 900–2000 монет | Срок 72ч (3 дня) | Ставка 25%\n"
         f"<i>Для надежных клиентов (от 3 закрытых займов).</i>\n\n"
-        f"💡 <i>Выберите тариф кнопкой ниже или укажите вручную:\n<code>/займ [лайт|стандарт|премиум] [сумма]</code></i>"
+        f"💡 <i>Можно оформлять до 5 займов одновременно!\n"
+        f"Выберите тариф кнопкой ниже или укажите вручную:\n"
+        f"<code>/займ [лайт|стандарт|премиум] [сумма] [кол-во]</code>\n"
+        f"Пример: <code>/займ лайт 350 2</code></i>"
     )
     await message.reply(text, reply_markup=make_loan_keyboard(user_id), parse_mode="HTML")
 
@@ -147,19 +178,31 @@ async def callback_loan_select(callback: CallbackQuery):
         await callback.answer("Ошибка тарифа", show_alert=True)
         return
 
-    # Предлагаем суммы (минимальная, средняя, максимальная)
     min_a = tariff["min_amount"]
     max_a = tariff["max_amount"]
     mid_a = round((min_a + max_a) / 2)
 
     buttons = [
         [
-            InlineKeyboardButton(text=f"💵 {min_a} монет", callback_data=f"loan_take:{tariff_key}:{min_a}:{owner_id}"),
-            InlineKeyboardButton(text=f"💵 {mid_a} монет", callback_data=f"loan_take:{tariff_key}:{mid_a}:{owner_id}"),
-            InlineKeyboardButton(text=f"💵 {max_a} монет", callback_data=f"loan_take:{tariff_key}:{max_a}:{owner_id}")
-        ],
-        [InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"loan_back:{owner_id}")]
+            InlineKeyboardButton(text=f"💵 {min_a} монет", callback_data=f"loan_take:{tariff_key}:{min_a}:{owner_id}:1"),
+            InlineKeyboardButton(text=f"💵 {mid_a} монет", callback_data=f"loan_take:{tariff_key}:{mid_a}:{owner_id}:1"),
+            InlineKeyboardButton(text=f"💵 {max_a} монет", callback_data=f"loan_take:{tariff_key}:{max_a}:{owner_id}:1")
+        ]
     ]
+
+    user_loans = loan_manager.get_user_loans(owner_id)
+    rem_slots = max(0, 5 - len(user_loans))
+    if rem_slots >= 2:
+        mult_row = [
+            InlineKeyboardButton(text=f"⚡ 2 шт. по {mid_a}м", callback_data=f"loan_take:{tariff_key}:{mid_a}:{owner_id}:2")
+        ]
+        if rem_slots >= 3:
+            mult_row.append(
+                InlineKeyboardButton(text=f"⚡ 3 шт. по {mid_a}м", callback_data=f"loan_take:{tariff_key}:{mid_a}:{owner_id}:3")
+            )
+        buttons.append(mult_row)
+
+    buttons.append([InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"loan_back:{owner_id}")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     debt_min = round(min_a * (1.0 + tariff["rate"]), 2)
@@ -170,7 +213,8 @@ async def callback_loan_select(callback: CallbackQuery):
         f"💰 Доступная сумма: <b>{min_a} — {max_a}</b> монет\n"
         f"⏳ Срок возврата: <b>{int(tariff['duration']//3600)} часов</b>\n"
         f"📈 Процентная ставка: <b>+{int(tariff['rate']*100)}%</b>\n"
-        f"💵 К возврату: от {debt_min:.2f} до {debt_max:.2f} монет\n\n"
+        f"💵 К возврату: от {debt_min:.2f} до {debt_max:.2f} монет\n"
+        f"📊 Активно займов: <b>{len(user_loans)}/5</b>\n\n"
         f"Выберите сумму для зачисления на баланс:",
         reply_markup=kb,
         parse_mode="HTML"
@@ -186,11 +230,14 @@ async def callback_loan_back(callback: CallbackQuery):
         return
 
     hist = loan_manager.get_credit_history(owner_id)
-    active_loan = loan_manager.get_user_loan(owner_id)
+    user_loans = loan_manager.get_user_loans(owner_id)
     status_line = "✅ Нет активных долгов"
-    if active_loan:
-        st = "🚨 ПРОСРОЧЕН" if active_loan.get("status") == "overdue" else "⏳ Активен"
-        status_line = f"{st}: <b>{active_loan.get('debt', 0):.2f}</b> монет"
+    if user_loans:
+        total_debt = loan_manager.get_total_debt(owner_id)
+        now = time.time()
+        overdue_cnt = sum(1 for l in user_loans if l.get("status") == "overdue" or l.get("due_at", 0) < now)
+        st = f"🚨 {overdue_cnt} просрочено" if overdue_cnt > 0 else "⏳ Активны"
+        status_line = f"{len(user_loans)}/5 шт. ({st}, долг: <b>{total_debt:.2f}</b> монет)"
 
     user_link = get_user_link(owner_id)
     text = (
@@ -214,30 +261,66 @@ async def callback_loan_take(callback: CallbackQuery):
     tariff_key = parts[1]
     amount = float(parts[2])
     owner_id = int(parts[3])
+    count = int(parts[4]) if len(parts) > 4 else 1
 
     if callback.from_user.id != owner_id:
         await callback.answer("❌ Это действие не для вас!", show_alert=True)
         return
 
-    ok, msg, loan_data = loan_manager.take_loan(owner_id, tariff_key, amount)
+    ok, msg, created_loans = loan_manager.take_loan(owner_id, tariff_key, amount, count)
     if not ok:
         await callback.answer(msg.replace("<b>", "").replace("</b>", ""), show_alert=True)
         return
 
     user_link = get_user_link(owner_id)
-    due_str = format_duration(loan_data["due_at"] - time.time())
-    await callback.message.edit_text(
-        f"✅ <b>Займ успешно выдан!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Заемщик:</b> {user_link}\n"
-        f"📋 <b>Тариф:</b> {loan_data['tariff_name']}\n"
-        f"💵 <b>Получено:</b> {amount:.2f} монет\n"
-        f"📈 <b>К возврату:</b> {loan_data['debt']:.2f} монет\n"
-        f"⏳ <b>Срок погашения:</b> {due_str}\n\n"
-        f"<i>Средства зачислены на ваш игровой счет. Погасить можно командой /repay</i>",
-        parse_mode="HTML"
-    )
-    await callback.answer("Займ получен!")
+    user_loans = loan_manager.get_user_loans(owner_id)
+    active_cnt = len(user_loans)
+    t_name = created_loans[0]["tariff_name"]
+    total_debt = sum(l["debt"] for l in created_loans)
+    total_borrowed = amount * count
+    due_str = format_duration(created_loans[0]["due_at"] - time.time())
+
+    action_buttons = []
+    if active_cnt < 5:
+        action_buttons.append([
+            InlineKeyboardButton(text="➕ Взять ещё такой же", callback_data=f"loan_take:{tariff_key}:{amount}:{owner_id}:1"),
+            InlineKeyboardButton(text="🔄 Другой тариф", callback_data=f"loan_back:{owner_id}")
+        ])
+    else:
+        action_buttons.append([InlineKeyboardButton(text="🔙 К тарифам", callback_data=f"loan_back:{owner_id}")])
+
+    action_buttons.append([InlineKeyboardButton(text=f"📊 Мои займы ({active_cnt}/5)", callback_data=f"loan_info:{owner_id}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=action_buttons)
+
+    if count == 1:
+        res_text = (
+            f"✅ <b>Займ #{created_loans[0]['id']} успешно выдан!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Заемщик:</b> {user_link}\n"
+            f"📋 <b>Тариф:</b> {t_name}\n"
+            f"💵 <b>Получено:</b> {amount:.2f} монет\n"
+            f"📈 <b>К возврату:</b> {total_debt:.2f} монет\n"
+            f"⏳ <b>Срок погашения:</b> {due_str}\n"
+            f"📊 <b>Активно займов:</b> {active_cnt}/5\n\n"
+            f"<i>Средства зачислены на ваш баланс. Погасить можно командой /repay</i>"
+        )
+    else:
+        ids_str = ", ".join(f"#{l['id']}" for l in created_loans)
+        res_text = (
+            f"✅ <b>Оформлено займов: {count} шт.!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Заемщик:</b> {user_link}\n"
+            f"📋 <b>Тариф:</b> {t_name}\n"
+            f"🔢 <b>Номера:</b> {ids_str}\n"
+            f"💵 <b>Получено на руки:</b> {total_borrowed:.2f} монет\n"
+            f"📈 <b>Общий долг:</b> {total_debt:.2f} монет\n"
+            f"⏳ <b>Срок погашения:</b> {due_str}\n"
+            f"📊 <b>Активно займов:</b> {active_cnt}/5\n\n"
+            f"<i>Средства зачислены на ваш баланс. Погасить можно командой /repay</i>"
+        )
+
+    await callback.message.edit_text(res_text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer(f"Оформлено: {count} займ(ов)!")
 
 
 @router.callback_query(F.data.startswith("loan_info:"))
@@ -247,37 +330,41 @@ async def callback_loan_info(callback: CallbackQuery):
         await callback.answer("❌ Это меню не для вас!", show_alert=True)
         return
 
-    loan = loan_manager.get_user_loan(owner_id)
-    hist = loan_manager.get_credit_history(owner_id)
+    user_loans = loan_manager.get_user_loans(owner_id)
     user_link = get_user_link(owner_id)
 
-    if not loan:
+    if not user_loans:
         await callback.answer("У вас нет активных займов.", show_alert=True)
         return
 
-    is_overdue = (loan.get("status") == "overdue") or (loan.get("due_at", 0) < time.time())
-    status_label = "🚨 ПРОСРОЧЕН" if is_overdue else "⏳ Активен"
-    rem_time = format_duration(loan.get("due_at", 0) - time.time())
-
-    coll_status = "Никто"
-    if loan.get("collector_contract"):
-        coll_link = get_user_link(loan["collector_contract"])
-        coll_status = f"В разработке у {coll_link}"
-
-    text = (
-        f"📋 <b>ИНФОРМАЦИЯ О ТЕКУЩЕМ ЗАЙМЕ</b>\n"
+    total_debt = loan_manager.get_total_debt(owner_id)
+    now = time.time()
+    lines = [
+        f"📋 <b>ИНФОРМАЦИЯ О ВАШИХ ЗАЙМАХ ({len(user_loans)}/5)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>Заемщик:</b> {user_link}\n"
-        f"🏷️ <b>Тариф:</b> {loan.get('tariff_name', 'Займ')}\n"
-        f"💵 <b>Тело займа:</b> {loan.get('principal', 0):.2f} монет\n"
-        f"💸 <b>Остаток к погашению:</b> <b>{loan.get('debt', 0):.2f}</b> монет\n"
-        f"📊 <b>Статус:</b> <code>{status_label}</code>\n"
-        f"⏳ <b>Срок:</b> {rem_time}\n"
-        f"🕵️ <b>Коллектор:</b> {coll_status}\n\n"
-        f"💡 <i>Погасить займ: <code>/repay</code></i>"
-    )
+        f"💰 <b>Общий долг к возврату:</b> <b>{total_debt:.2f}</b> монет\n"
+    ]
+
+    for l in user_loans:
+        lid = l.get("id", 1)
+        is_overdue = (l.get("status") == "overdue") or (l.get("due_at", 0) < now)
+        status_label = "🚨 ПРОСРОЧЕН" if is_overdue else "⏳ активен"
+        rem_time = format_duration(l.get("due_at", 0) - now)
+        coll_status = ""
+        if l.get("collector_contract"):
+            coll_link = get_user_link(l["collector_contract"])
+            coll_status = f" | 🕵️ {coll_link}"
+
+        lines.append(
+            f"🔹 <b>Займ #{lid} «{l.get('tariff_name', 'Займ')}»</b>:\n"
+            f"   💸 Долг: <b>{l.get('debt', 0):.2f}</b> монет (тело: {l.get('principal', 0):.0f}м)\n"
+            f"   📊 <code>{status_label}</code> (срок: {rem_time}){coll_status}"
+        )
+
+    lines.append("\n💡 <i>Погасить: <code>/repay</code> (все) или <code>/repay [номер] [сумма]</code></i>")
     buttons = [[InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"loan_back:{owner_id}")]]
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    await callback.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
     await callback.answer()
 
 
@@ -289,16 +376,40 @@ async def repay_command(message: Message):
 
     args = message.text.split()
     amount = None
-    if len(args) > 1:
-        if args[1].lower() in ["all", "все", "всё"]:
+    loan_id = None
+
+    if len(args) == 2:
+        token = args[1].lower()
+        if token in ["all", "все", "всё"]:
+            amount = None
+        elif token.startswith("#") and token[1:].isdigit():
+            loan_id = int(token[1:])
             amount = None
         else:
             try:
-                amount = float(args[1])
+                val = float(token.replace(",", "."))
+                user_loan_ids = [l.get("id") for l in loan_manager.get_user_loans(user_id)]
+                if int(val) == val and int(val) in user_loan_ids and val <= 5:
+                    loan_id = int(val)
+                    amount = None
+                else:
+                    amount = val
+            except ValueError:
+                amount = None
+    elif len(args) >= 3:
+        token1 = args[1].lstrip("#")
+        token2 = args[2].lower()
+        if token1.isdigit():
+            loan_id = int(token1)
+        if token2 in ["all", "все", "всё"]:
+            amount = None
+        else:
+            try:
+                amount = float(token2.replace(",", "."))
             except ValueError:
                 amount = None
 
-    ok, res_text, paid = loan_manager.repay_loan(user_id, amount)
+    ok, res_text, paid = loan_manager.repay_loan(user_id, amount, loan_id)
     if not ok:
         await send_error_message(message, res_text)
         return
@@ -315,10 +426,10 @@ async def my_loan_command(message: Message):
     user_id = message.from_user.id
     user_link = get_user_link(user_id)
 
-    loan = loan_manager.get_user_loan(user_id)
+    user_loans = loan_manager.get_user_loans(user_id)
     hist = loan_manager.get_credit_history(user_id)
 
-    if not loan:
+    if not user_loans:
         await message.reply(
             f"ℹ️ <b>У вас нет активных займов!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -331,28 +442,33 @@ async def my_loan_command(message: Message):
         )
         return
 
-    is_overdue = (loan.get("status") == "overdue") or (loan.get("due_at", 0) < time.time())
-    status_label = "🚨 ПРОСРОЧЕН (OVERDUE)" if is_overdue else "⏳ Активен"
-    rem_time = format_duration(loan.get("due_at", 0) - time.time())
-
-    coll_status = "Никто"
-    if loan.get("collector_contract"):
-        coll_link = get_user_link(loan["collector_contract"])
-        coll_status = f"В разработке у {coll_link}"
-
-    await message.reply(
-        f"📋 <b>ИНФОРМАЦИЯ О ТЕКУЩЕМ ЗАЙМЕ</b>\n"
+    total_debt = loan_manager.get_total_debt(user_id)
+    now = time.time()
+    lines = [
+        f"📋 <b>ИНФОРМАЦИЯ О ВАШИХ ЗАЙМАХ ({len(user_loans)}/5)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>Заемщик:</b> {user_link}\n"
-        f"🏷️ <b>Тариф:</b> {loan.get('tariff_name', 'Займ')}\n"
-        f"💵 <b>Тело займа:</b> {loan.get('principal', 0):.2f} монет\n"
-        f"💸 <b>Остаток к погашению:</b> <b>{loan.get('debt', 0):.2f}</b> монет\n"
-        f"📊 <b>Статус:</b> <code>{status_label}</code>\n"
-        f"⏳ <b>Срок:</b> {rem_time}\n"
-        f"🕵️ <b>Коллектор:</b> {coll_status}\n\n"
-        f"💡 <i>Погасить займ: <code>/repay</code></i>",
-        parse_mode="HTML"
-    )
+        f"💰 <b>Общий долг:</b> <b>{total_debt:.2f}</b> монет\n"
+    ]
+
+    for l in user_loans:
+        lid = l.get("id", 1)
+        is_overdue = (l.get("status") == "overdue") or (l.get("due_at", 0) < now)
+        status_label = "🚨 ПРОСРОЧЕН" if is_overdue else "⏳ активен"
+        rem_time = format_duration(l.get("due_at", 0) - now)
+        coll_status = ""
+        if l.get("collector_contract"):
+            coll_link = get_user_link(l["collector_contract"])
+            coll_status = f" | 🕵️ В разработке у {coll_link}"
+
+        lines.append(
+            f"🔹 <b>Займ #{lid} «{l.get('tariff_name', 'Займ')}»</b>:\n"
+            f"   💸 Долг: <b>{l.get('debt', 0):.2f}</b> монет (тело: {l.get('principal', 0):.0f}м)\n"
+            f"   📊 <code>{status_label}</code> (срок: {rem_time}){coll_status}"
+        )
+
+    lines.append("\n💡 <i>Погасить: <code>/repay</code> (все) или <code>/repay [номер] [сумма]</code></i>")
+    await message.reply("\n".join(lines), parse_mode="HTML")
 
 
 # =================================================================
@@ -565,8 +681,7 @@ async def collect_seize_command(message: Message):
         await send_error_message(message, "❌ Вы не можете выбивать долг из самого себя!")
         return
 
-    loan = loan_manager.get_user_loan(debtor_id)
-    if not loan or (loan.get("status") != "overdue" and loan.get("due_at", 0) > time.time()):
+    if not loan_manager.has_overdue_loan(debtor_id):
         # Ложный наезд на невиновного!
         strikes, ban_time, sanction_desc = loan_manager.apply_sanction(
             collector_id,
@@ -588,7 +703,7 @@ async def collect_seize_command(message: Message):
         return
 
     debtor_balance = economy_manager.get_balance(debtor_id)
-    current_debt = loan.get("debt", 0.0)
+    current_debt = loan_manager.get_total_overdue_debt(debtor_id)
 
     debtor_link = get_user_link(debtor_id)
 
@@ -631,9 +746,9 @@ async def collect_seize_command(message: Message):
     )
 
     if is_closed:
-        res_text += f"\n🎉 <b>ДОЛГ ПОЛНОСТЬЮ ЗАКРЫТ!</b> Дело сдано в архив, дело закрыто!"
+        res_text += f"\n🎉 <b>ВСЕ ПРОСРОЧЕННЫЕ ДОЛГИ ЗАКРЫТЫ!</b> Дело сдано в архив, контракт завершен!"
     else:
-        new_debt = loan.get("debt", 0.0)
+        new_debt = loan_manager.get_total_overdue_debt(debtor_id)
         res_text += f"\n📉 <b>Остаток долга:</b> {new_debt:.2f} монет."
 
     await message.reply(res_text, parse_mode="HTML")
@@ -659,8 +774,7 @@ async def collect_fight_command(message: Message):
         await send_error_message(message, "💡 Ответьте на сообщение должника командой <code>/наезд</code>")
         return
 
-    loan = loan_manager.get_user_loan(debtor_id)
-    if not loan or (loan.get("status") != "overdue" and loan.get("due_at", 0) > time.time()):
+    if not loan_manager.has_overdue_loan(debtor_id):
         strikes, _, sanction_desc = loan_manager.apply_sanction(
             collector_id,
             f"Беспредел: силовой наезд на добросовестного игрока {debtor_id}"
@@ -707,7 +821,7 @@ async def collect_fight_command(message: Message):
         return
 
     # 2. Успешный силовой прессинг (выбивание монет)
-    current_debt = loan.get("debt", 0.0)
+    current_debt = loan_manager.get_total_overdue_debt(debtor_id)
     debtor_bal = economy_manager.get_balance(debtor_id)
 
     # Если у должника есть монеты — выбивается 30-70%
@@ -736,7 +850,10 @@ async def collect_fight_command(message: Message):
         f"🏦 <b>Погашено долга:</b> {mfi_share:.2f} монет\n"
     )
     if is_closed:
-        text += "\n🎉 <b>ДОЛГ ПОЛНОСТЬЮ ЛИКВИДИРОВАН!</b> Дело закрыто!"
+        text += "\n🎉 <b>ВСЕ ПРОСРОЧЕННЫЕ ДОЛГИ ЛИКВИДИРОВАНЫ!</b> Дело закрыто!"
+    else:
+        rem_debt = loan_manager.get_total_overdue_debt(debtor_id)
+        text += f"\n📉 <b>Остаток долга:</b> {rem_debt:.2f} монет."
 
     await message.reply(text, parse_mode="HTML")
 
@@ -754,8 +871,7 @@ async def collect_call_command(message: Message):
         await send_error_message(message, "💡 Ответьте на сообщение должника командой <code>/звонок_должнику</code>")
         return
 
-    loan = loan_manager.get_user_loan(debtor_id)
-    if not loan or (loan.get("status") != "overdue" and loan.get("due_at", 0) > time.time()):
+    if not loan_manager.has_overdue_loan(debtor_id):
         strikes, _, sanction_desc = loan_manager.apply_sanction(
             collector_id,
             f"Беспредел: незаконный звонок и давление на добросовестного игрока {debtor_id}"
@@ -786,13 +902,14 @@ async def collect_call_command(message: Message):
         "Уважаемый неплательщик! Либо вы вносите платеж прямо сейчас (/repay), либо следующий визит будет с утюгом!"
     ])
 
+    overdue_debt = loan_manager.get_total_overdue_debt(debtor_id)
     await message.reply(
         f"📞 <b>ТЕЛЕФОННЫЙ ПРЕССИНГ ДОЛЖНИКА!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🕵️ <b>Коллектор:</b> {collector_link}\n"
         f"🎯 <b>Абонент:</b> {debtor_link}\n\n"
         f"📢 <i>«{insult}»</i>\n\n"
-        f"💸 Текущий долг: <b>{loan.get('debt', 0):.2f}</b> монет. Срочно погасите: <code>/repay</code>",
+        f"💸 Текущий просроченный долг: <b>{overdue_debt:.2f}</b> монет. Срочно погасите: <code>/repay</code>",
         parse_mode="HTML"
     )
 
@@ -819,8 +936,7 @@ async def report_collector_command(message: Message):
         return
 
     # Проверяем, есть ли у подающего жалобу просроченный долг
-    loan = loan_manager.get_user_loan(user_id)
-    has_overdue = loan and (loan.get("status") == "overdue" or loan.get("due_at", 0) < time.time())
+    has_overdue = loan_manager.has_overdue_loan(user_id)
 
     if not has_overdue:
         # Коллектор наезжал на того, у кого нет долга! Удовлетворяем жалобу немедленно
@@ -835,10 +951,11 @@ async def report_collector_command(message: Message):
             parse_mode="HTML"
         )
     else:
+        overdue_debt = loan_manager.get_total_overdue_debt(user_id)
         # У игрока есть долг — проверяем, не совершал ли коллектор действий в обход правил
         await message.reply(
             f"⚖️ <b>ЖАЛОБА ОТКЛОНЕНА!</b>\n\n"
-            f"Инспекция установила: у вас имеется непогашенный просроченный долг на сумму <b>{loan.get('debt', 0):.2f}</b> монет.\n"
+            f"Инспекция установила: у вас имеется непогашенный просроченный долг на сумму <b>{overdue_debt:.2f}</b> монет.\n"
             f"Действия взыскателя признаны законными. Погасите задолженность командой <code>/repay</code>.",
             parse_mode="HTML"
         )

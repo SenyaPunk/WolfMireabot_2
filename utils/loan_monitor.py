@@ -29,51 +29,53 @@ async def loan_monitor(bot: Bot):
 
             # 1. Проверка займов
             loans_snapshot = list(loan_manager.loans.items())
-            for user_id, loan in loans_snapshot:
-                due_at = loan.get("due_at", 0)
-                status = loan.get("status", "active")
-                principal = loan.get("principal", 100.0)
-                debt = loan.get("debt", 0.0)
+            for user_id, user_loans in loans_snapshot:
+                for loan in list(user_loans):
+                    due_at = loan.get("due_at", 0)
+                    status = loan.get("status", "active")
+                    principal = loan.get("principal", 100.0)
+                    debt = loan.get("debt", 0.0)
+                    loan_id = loan.get("id", 1)
 
-                # Перевод в статус просрочки
-                if status == "active" and now > due_at:
-                    loan["status"] = "overdue"
-                    loan["last_penalty_at"] = now
-                    loan_manager.save_data()
-                    logger.warning(f"Займ пользователя {user_id} перешел в статус OVERDUE. Долг: {debt}")
+                    # Перевод в статус просрочки
+                    if status == "active" and now > due_at:
+                        loan["status"] = "overdue"
+                        loan["last_penalty_at"] = now
+                        loan_manager.save_data()
+                        logger.warning(f"Займ #{loan_id} пользователя {user_id} перешел в статус OVERDUE. Долг: {debt}")
 
-                    # Пробуем уведомить должника в ЛС
-                    try:
-                        user_link = get_user_link(user_id)
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"🚨 <b>ВНИМАНИЕ: СРОК ЗАЙМА ИСТЕК!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"Уважаемый {user_link}, срок возврата займа по тарифу «{loan.get('tariff_name')}» истек!\n\n"
-                                f"💸 <b>Текущий долг:</b> {debt:.2f} монет\n"
-                                f"⚠️ <b>Статус:</b> <code>ПРОСРОЧЕН (OVERDUE)</code>\n"
-                                f"📈 Каждые 12 часов будет начисляться пеня (+5%).\n"
-                                f"🔒 Ваши переводы монет заблокированы, а дело передано на <b>Биржу коллекторов</b>!\n\n"
-                                f"💡 <i>Срочно погасите задолженность командой /repay</i>"
-                            ),
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                        # Пробуем уведомить должника в ЛС
+                        try:
+                            user_link = get_user_link(user_id)
+                            await bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    f"🚨 <b>ВНИМАНИЕ: СРОК ЗАЙМА #{loan_id} ИСТЕК!</b>\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                    f"Уважаемый {user_link}, срок возврата займа #{loan_id} по тарифу «{loan.get('tariff_name')}» истек!\n\n"
+                                    f"💸 <b>Текущий долг:</b> {debt:.2f} монет\n"
+                                    f"⚠️ <b>Статус:</b> <code>ПРОСРОЧЕН (OVERDUE)</code>\n"
+                                    f"📈 Каждые 12 часов будет начисляться пеня (+5%).\n"
+                                    f"🔒 Ваши переводы монет заблокированы, а дело передано на <b>Биржу коллекторов</b>!\n\n"
+                                    f"💡 <i>Срочно погасите задолженность командой /repay</i>"
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
 
-                # Начисление пени каждые 12 часов
-                elif status == "overdue":
-                    last_penalty = loan.get("last_penalty_at", due_at)
-                    if now - last_penalty >= PENALTY_INTERVAL:
-                        max_cap = round(principal * MAX_DEBT_MULTIPLIER, 2)
-                        if debt < max_cap:
-                            penalty = round(principal * PENALTY_RATE, 2)
-                            new_debt = round(min(debt + penalty, max_cap), 2)
-                            loan["debt"] = new_debt
-                            loan["last_penalty_at"] = now
-                            loan_manager.save_data()
-                            logger.info(f"Начислена пеня {penalty} пользователю {user_id}. Новый долг: {new_debt}")
+                    # Начисление пени каждые 12 часов
+                    elif status == "overdue":
+                        last_penalty = loan.get("last_penalty_at", due_at)
+                        if now - last_penalty >= PENALTY_INTERVAL:
+                            max_cap = round(principal * MAX_DEBT_MULTIPLIER, 2)
+                            if debt < max_cap:
+                                penalty = round(principal * PENALTY_RATE, 2)
+                                new_debt = round(min(debt + penalty, max_cap), 2)
+                                loan["debt"] = new_debt
+                                loan["last_penalty_at"] = now
+                                loan_manager.save_data()
+                                logger.info(f"Начислена пеня {penalty} пользователю {user_id} по займу #{loan_id}. Новый долг: {new_debt}")
 
             # 2. Проверка контрактов коллекторов
             collectors_snapshot = list(loan_manager.collectors.items())
