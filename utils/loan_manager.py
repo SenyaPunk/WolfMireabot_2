@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 from utils.economy_manager import EconomyManager
+from utils.treasury_manager import TreasuryManager
 
 logger = logging.getLogger(__name__)
 
@@ -540,6 +541,11 @@ class LoanManager:
                 partially_paid_info.append(f"• Займ #{lid} «{t_name}»: остаток {new_debt:.2f}м")
 
         self.economy_manager.remove_money(user_id, actual_paid)
+        TreasuryManager().add_to_treasury(
+            actual_paid,
+            source="loans",
+            description=f"Погашение займа игроком {user_id} ({actual_paid:.2f}м)"
+        )
 
         # Очищаем запись пользователя, если займов больше нет
         if user_id in self.loans and len(self.loans[user_id]) == 0:
@@ -664,6 +670,11 @@ class LoanManager:
             return False, f"❌ Для покупки лицензии коллектора и экипировки требуется <b>{LICENSE_FEE:.0f}</b> монет (у вас: {balance:.2f})."
 
         self.economy_manager.remove_money(user_id, LICENSE_FEE)
+        TreasuryManager().add_to_treasury(
+            LICENSE_FEE,
+            source="license",
+            description=f"Лицензия коллектора от игрока {user_id}"
+        )
 
         if not coll:
             self.collectors[user_id] = {
@@ -722,6 +733,11 @@ class LoanManager:
         actual_fine = min(user_bal, fine_amount)
         if actual_fine > 0:
             self.economy_manager.remove_money(user_id, actual_fine)
+            TreasuryManager().add_to_treasury(
+                actual_fine,
+                source="fine",
+                description=f"Штраф коллектора {user_id} ({actual_fine:.2f}м)"
+            )
 
         # При 3 страйках сбрасывается карьерный ранг
         if strikes >= 3:
@@ -838,6 +854,14 @@ class LoanManager:
         # Выплачиваем комиссию коллектору
         self.economy_manager.add_money(collector_id, collector_share)
         coll["total_collected"] = round(coll.get("total_collected", 0.0) + collected_amount, 2)
+
+        # Доля МФО зачисляется в Государственную Казну
+        if mfi_share > 0:
+            TreasuryManager().add_to_treasury(
+                mfi_share,
+                source="collector_recovery",
+                description=f"Взыскание долга с {debtor_id} ({mfi_share:.2f}м)"
+            )
 
         user_loans = self.get_user_loans(debtor_id)
         now = time.time()

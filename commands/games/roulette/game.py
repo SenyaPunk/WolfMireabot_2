@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from utils.economy_manager import EconomyManager
 from utils.slave_manager import SlaveManager
 from utils.cooldown_manager import CooldownManager
+from utils.treasury_manager import TreasuryManager
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
 from utils.slots_generator import generate_slots_gif, SYMBOLS, SYMBOL_WEIGHTS
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 slave_manager = SlaveManager()
 cooldown_manager = CooldownManager()
+treasury_manager = TreasuryManager()
 
 # Хранение текущих ставок пользователей в сессии: user_id -> int
 user_bets = {}
@@ -479,7 +481,14 @@ async def run_spin_game(bot: Bot, callback_query: CallbackQuery, user_id: int, b
         if payout_to_player > 0:
             new_balance = int(economy_manager.add_money(user_id, payout_to_player))
             
-        emoji1 = SYMBOLS[s1][0]
+        # Если казино в плюсе (игрок проиграл ставку или часть ставки), разница идет в казну
+        if bet_amount > payout_to_player:
+            lost_to_casino = bet_amount - payout_to_player
+            treasury_manager.add_to_treasury(
+                lost_to_casino,
+                source="slots",
+                description=f"Проигрыш в Слоты 777 (ставка {bet_amount})"
+            )
         emoji2 = SYMBOLS[s2][0]
         emoji3 = SYMBOLS[s3][0]
         

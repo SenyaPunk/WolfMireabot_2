@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from utils.economy_manager import EconomyManager
+from utils.treasury_manager import TreasuryManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
@@ -14,6 +15,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
+treasury_manager = TreasuryManager()
 user_storage = UserStorage()
 
 
@@ -119,6 +121,30 @@ async def transfer_command(message: Message):
         )
         return
     
+    # Если перевод адресован боту — отправляем сразу в Государственную Казну
+    bot_id = message.bot.id if message.bot else None
+    if target_user_id == bot_id:
+        economy_manager.remove_money(sender_id, amount)
+        new_treasury_bal = treasury_manager.add_to_treasury(
+            amount,
+            source="transfer",
+            description=f"Пожертвование в Казну от {message.from_user.full_name}"
+        )
+        sender_link = get_user_link(sender_id)
+        new_sender_balance = economy_manager.get_balance(sender_id)
+        
+        await message.reply(
+            f"🏦 <b>Пополнение Государственной Казны Волка!</b>\n\n"
+            f"💸 {sender_link} щедро внес(ла) <b>{amount:.2f}</b> монет в Казну!\n\n"
+            f"💰 Новый баланс Казны: <b>{new_treasury_bal:.2f}</b> монет\n"
+            f"💳 Ваш остаток: <b>{new_sender_balance:.2f}</b> монет\n\n"
+            f"<i>Сейф стал еще богаче... Грабители уже потирают лапы! 🐺💰</i>",
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        logger.info(f"Перевод в казну: {sender_id}, сумма: {amount}")
+        return
+
     economy_manager.remove_money(sender_id, amount)
     economy_manager.add_money(target_user_id, amount)
     

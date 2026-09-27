@@ -366,6 +366,12 @@ class ArmyManager:
 
         # Списываем монеты
         self.economy_manager.remove_money(creator_id, CREATE_ARMY_COST)
+        from utils.treasury_manager import TreasuryManager
+        TreasuryManager().add_to_treasury(
+            CREATE_ARMY_COST,
+            source="army",
+            description=f"Госпошлина за армию «{army_name}» ({int(CREATE_ARMY_COST)}м)"
+        )
 
         now = time.time()
         new_army = {

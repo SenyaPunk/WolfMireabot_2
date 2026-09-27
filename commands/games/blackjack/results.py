@@ -6,12 +6,14 @@ from aiogram import Bot
 from utils.economy_manager import EconomyManager
 from utils.slave_manager import SlaveManager
 from utils.game_state_manager import GameStateManager
+from utils.treasury_manager import TreasuryManager
 from utils.user_link import get_user_link
 from .helpers import safe_send_message, safe_delete_message
 
 logger = logging.getLogger(__name__)
 economy_manager = EconomyManager()
 slave_manager = SlaveManager()
+treasury_manager = TreasuryManager()
 
 
 def calculate_hand_value(cards: list) -> int:
@@ -132,6 +134,13 @@ async def show_results(bot: Bot, chat_id: int, game_key: str, game_state_manager
             if actual_payout > 0:
                 economy_manager.add_money(user_id, actual_payout)
                 logger.info(f"Paid {actual_payout} to user {user_id} (bet: {bet_amount}, win: {win_amount})")
+            else:
+                # Игрок проиграл ставку дилеру - ставка уходит в Казну Волка
+                treasury_manager.add_to_treasury(
+                    bet_amount,
+                    source="blackjack",
+                    description=f"Проигрыш ставки в Блекджек ({bet_amount}м)"
+                )
             
             if win_amount > 0:
                 effective_win = slave_share if owner_id else win_amount

@@ -247,7 +247,7 @@ async def ransom_prisoner_cmd(message: Message):
     await message.reply(result_msg, parse_mode="HTML")
 
 
-@router.message(Command("army_bank", "казна", "бюджет_армии"))
+@router.message(Command("army_bank", "казна_армии", "бюджет_армии", "банк_армии"))
 async def army_bank_cmd(message: Message):
     """Просмотр казны армии."""
     user_id = message.from_user.id
