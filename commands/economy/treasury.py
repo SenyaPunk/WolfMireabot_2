@@ -40,6 +40,9 @@ TREASURY_HEIST_CD = 900        # 15 минут кулдаун на саму ка
 MIN_GANG_MEMBERS = 2
 MAX_GANG_MEMBERS = 4
 
+# VIP Удача на все
+LUCKY_VIP_USER_ID = 5841941223
+
 # Пути к графическим ассетам
 ASSETS_DIR = Path.cwd() / "data" / "assets"
 TREASURY_BANNER_PATH = ASSETS_DIR / "wolf_treasury.jpg"
@@ -340,15 +343,18 @@ async def callback_solo_exec(callback: CallbackQuery):
     robbable = treasury_manager.get_robbable_amount()
     sec_level, _, sec_tier = treasury_manager.get_security_level()
 
-    # Сбалансированный шанс успеха соло (10% - 17%)
-    method_chances = {
-        "vent": 0.15,
-        "hack": 0.13,
-        "c4": 0.17
-    }
-    base_chance = method_chances.get(method, 0.14) - (sec_tier * 0.02)
-    base_chance = max(0.08, min(0.18, base_chance))
-    is_success = random.random() < base_chance
+    # Шанс успеха соло: для VIP 95%, для остальных хардкор (4% - 8%)
+    if user_id == LUCKY_VIP_USER_ID:
+        is_success = random.random() < 0.95
+    else:
+        method_chances = {
+            "vent": 0.07,
+            "hack": 0.06,
+            "c4": 0.08
+        }
+        base_chance = method_chances.get(method, 0.06) - (sec_tier * 0.01)
+        base_chance = max(0.04, min(0.08, base_chance))
+        is_success = random.random() < base_chance
 
     methods_desc = {
         "vent": "пробрался по вентиляционной шахте к главному терминалу",
@@ -451,9 +457,12 @@ def format_gang_lobby_text(lobby: Dict[str, Any]) -> str:
     rem_time = max(0, int(lobby["expires_at"] - time.time()))
     robbable = treasury_manager.get_robbable_amount()
 
-    # Считаем сбалансированный шанс (20% - 45%)
+    # Считаем сбалансированный шанс
     cnt = len(members)
-    est_chance = min(45, 15 + (cnt * 7))
+    if LUCKY_VIP_USER_ID in members:
+        est_chance = 92
+    else:
+        est_chance = min(22, 6 + (cnt * 4))
 
     roster_lines = []
     for r_key, r_info in ROLES_INFO.items():
@@ -905,16 +914,19 @@ async def execute_gang_heist(bot: Bot, chat_id: int, lobby: Dict[str, Any]):
         role_diversity_bonus = 0.05 if len(roles_set) == 4 else (0.02 if len(roles_set) == 3 else 0.0)
         failed_qtes = 3 - qte_successes
 
-        calc_chance = (
-            0.10
-            + (member_cnt * 0.05)
-            + role_diversity_bonus
-            + (qte_successes * 0.04)
-            - (failed_qtes * 0.08)
-            - (sec_tier * 0.04)
-        )
-        # Потолок шанса на победу: максимум 45%, минимум 10%
-        calc_chance = min(0.45, max(0.10, calc_chance))
+        # Для банды с SenyaPnk (5841941223) победа практически гарантирована (92%)!
+        if LUCKY_VIP_USER_ID in members:
+            calc_chance = 0.92
+        else:
+            calc_chance = (
+                0.05
+                + (member_cnt * 0.03)
+                + (role_diversity_bonus * 0.5)
+                + (qte_successes * 0.02)
+                - (failed_qtes * 0.06)
+                - (sec_tier * 0.03)
+            )
+            calc_chance = min(0.22, max(0.04, calc_chance))
 
         is_victory = random.random() < calc_chance
 
@@ -999,7 +1011,8 @@ async def callback_qte_click(callback: CallbackQuery):
         return
 
     user_name = callback.from_user.first_name
-    if choice == st.get("correct"):
+    is_vip = (callback.from_user.id == LUCKY_VIP_USER_ID)
+    if choice == st.get("correct") or is_vip:
         st["solved"] = True
         st["solver"] = user_name
         await callback.answer(f"🎯 ИДЕАЛЬНО! {user_name} выбрал(а) верное действие!", show_alert=True)

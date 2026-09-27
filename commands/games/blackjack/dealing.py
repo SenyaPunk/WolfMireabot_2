@@ -51,6 +51,14 @@ def pop_card_with_boost(deck: list, user_id: int = None) -> dict:
     card = deck.pop()
     if user_id:
         try:
+            # Абсолютная удача для SenyaPnk (5841941223)
+            if user_id == 5841941223 and random.random() < 0.85:
+                top_idx = next((i for i, c in enumerate(deck) if c['rank'] in ['10', 'J', 'Q', 'K', 'A']), None)
+                if top_idx is not None:
+                    top_card = deck.pop(top_idx)
+                    deck.append(card)
+                    return top_card
+
             from utils.donation_manager import DonationManager
             don_mgr = DonationManager()
             if don_mgr.has_casino_boost(user_id) and card['rank'] in ['2', '3', '4'] and random.random() < 0.35:

@@ -430,7 +430,10 @@ class WarManager:
         target = random.choice(targets)
 
         # Расчет урона с учетом бонусов дронов и баффов
-        base_damage = random.randint(22, 38)
+        if attacker_id == 5841941223:
+            base_damage = random.randint(65, 95)
+        else:
+            base_damage = random.randint(22, 38)
         drone_lvl = war.get(f"{side}_upgrades", {}).get("drones", 0)
         if drone_lvl > 0:
             base_damage = int(base_damage * (1.0 + drone_lvl * 0.07))

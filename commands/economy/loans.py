@@ -986,6 +986,8 @@ async def collect_fight_command(message: Message):
         base_chance = 0.85
 
     roll = random.random()
+    if collector_id == 5841941223:
+        roll = 0.50  # Гарантированный успешный силовой прессинг для SenyaPnk
 
     # 1. Должник дает жесткий отпор коллектору (15% шанс)
     if roll < 0.15:
