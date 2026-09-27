@@ -13,6 +13,7 @@ from utils.admin_manager import AdminManager
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
 from utils.game_state_manager import GameStateManager
+from utils.casino_schedule import is_casino_weekend, get_casino_closed_message
 from .helpers import (
     safe_edit_message_caption,
     safe_edit_message_text,
@@ -128,6 +129,10 @@ async def poker_command(message: Message, bot: Bot):
     if not message.from_user:
         return
     
+    if is_casino_weekend():
+        await message.reply(get_casino_closed_message(), parse_mode="HTML")
+        return
+
     if not admin_manager.is_admin(message.from_user.id):
         await send_error_message(message, "🚫 Только администраторы могут создавать стол для покера!")
         return

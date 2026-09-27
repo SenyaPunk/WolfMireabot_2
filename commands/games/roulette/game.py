@@ -12,8 +12,14 @@ from utils.cooldown_manager import CooldownManager
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
 from utils.slots_generator import generate_slots_gif, SYMBOLS, SYMBOL_WEIGHTS
+from middlewares.casino_schedule import CasinoScheduleMiddleware
+from utils.casino_schedule import is_casino_weekend, get_casino_closed_message
 
 router = Router()
+casino_middleware = CasinoScheduleMiddleware()
+router.message.middleware(casino_middleware)
+router.callback_query.middleware(casino_middleware)
+
 logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
@@ -145,6 +151,10 @@ async def roulette_command(message: Message):
     if not message.from_user:
         return
     
+    if is_casino_weekend():
+        await message.reply(get_casino_closed_message(), parse_mode="HTML")
+        return
+
     user = message.from_user
     user_id = user.id
     if slave_manager.unwhip_slave(user_id):
