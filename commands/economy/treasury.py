@@ -36,7 +36,7 @@ user_storage = UserStorage()
 HEIST_LOBBY_DURATION = 60      # 60 секунд на сбор банды
 HEIST_QTE_TIMEOUT = 14         # 14 секунд на каждый QTE-выбор
 USER_HEIST_COOLDOWN = 3600     # 1 час личный кулдаун игрока
-TREASURY_HEIST_CD = 3600       # 1 час кулдаун на саму казну после налета
+TREASURY_HEIST_CD = 900        # 15 минут кулдаун на саму казну после налета бандой
 MIN_GANG_MEMBERS = 2
 MAX_GANG_MEMBERS = 4
 
@@ -170,15 +170,15 @@ async def callback_treasury_rules(callback: CallbackQuery):
         f"📖 <b>ПРАВИЛА НАЛЁТА НА КАЗНУ ВОЛКА</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🥷 <b>Одиночный налёт (Соло):</b>\n"
-        f"• Куш: <b>8% – 15%</b> от свободной казны\n"
-        f"• Базовый шанс успеха: <b>~30%</b>\n"
-        f"• Риск провала: штраф 10% от баланса и 1ч кулдауна\n\n"
+        f"• Куш: <b>5% – 10%</b> от свободной казны\n"
+        f"• Шанс успеха: <b>~12% – 18%</b> (высокий риск!)\n"
+        f"• Риск провала: штраф 10% от баланса и 1ч личного розыска\n\n"
         f"👥 <b>Командное ограбление (Банда 2–4 чел):</b>\n"
-        f"• Куш: <b>25% – 50%</b> от свободной казны, делится <b>поровну</b> между всеми выжившими!\n"
-        f"• Шанс успеха: от <b>50% до 85%</b> (каждый боец с уникальной ролью повышает шансы!)\n"
+        f"• Куш: <b>20% – 35%</b> от свободной казны, делится <b>поровну</b> между всеми выжившими!\n"
+        f"• Шанс успеха: от <b>25% до 45%</b> (зависит от числа бойцов, уникальности ролей и безошибочного прохождения QTE-фаз)\n"
         f"• Роли: 💻 Хакер, 💣 Подрывник, 🔫 Стрелок, 🏎️ Водитель\n"
-        f"• В процессе налёта бот запустит интерактивные QTE-события!\n\n"
-        f"⚠️ <i>После успешного ограбления казна закрывается на 1 час на усиленный карантин.</i>"
+        f"• За каждую ошибку в фазах взлома шанс падает на -10%!\n\n"
+        f"⚠️ <i>После успешного командного налёта казна переходит на 15-минутный режим ЧП.</i>"
     )
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад к казне", callback_data="tr_refresh_menu")]
@@ -308,7 +308,7 @@ async def callback_solo_choice(callback: CallbackQuery):
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Налётчик: {user_link}\n"
         f"💰 Свободный куш: <b>{robbable:,.2f} монет</b>\n"
-        f"🎲 Шанс успеха: <b>~30%</b>\n\n"
+        f"🎲 Шанс успеха: <b>~12% – 18%</b> (высокий риск!)\n\n"
         f"Выберите способ скрытного проникновения:"
     )
     try:
@@ -328,25 +328,26 @@ async def callback_solo_exec(callback: CallbackQuery):
     user_link = get_user_link(user_id, user_name)
     method = callback.data.split(":")[1]
 
-    # Повторная проверка кулдаунов
-    cd_rem = treasury_manager.get_heist_cooldown_remaining()
-    if cd_rem > 0:
-        await callback.answer(f"🚨 Казна на карантине еще {format_duration(cd_rem)}!", show_alert=True)
-        return
-
+    # Проверка личного кулдауна игрока
     u_cd = cooldown_manager.check_cooldown(f"heist_user:{user_id}", USER_HEIST_COOLDOWN)
     if u_cd is not None:
         await callback.answer(f"⏳ Вы еще в розыске ({format_duration(u_cd)})!", show_alert=True)
         return
 
-    # Устанавливаем кулдаун пользователю сразу
+    # Устанавливаем личный кулдаун пользователю сразу
     cooldown_manager.set_cooldown(f"heist_user:{user_id}")
 
     robbable = treasury_manager.get_robbable_amount()
     sec_level, _, sec_tier = treasury_manager.get_security_level()
 
-    # Базовый шанс успеха соло: от 22% до 35% в зависимости от уровня охраны
-    base_chance = max(0.20, 0.38 - (sec_tier * 0.04))
+    # Сбалансированный шанс успеха соло (10% - 17%)
+    method_chances = {
+        "vent": 0.15,
+        "hack": 0.13,
+        "c4": 0.17
+    }
+    base_chance = method_chances.get(method, 0.14) - (sec_tier * 0.02)
+    base_chance = max(0.08, min(0.18, base_chance))
     is_success = random.random() < base_chance
 
     methods_desc = {
@@ -357,8 +358,8 @@ async def callback_solo_exec(callback: CallbackQuery):
     action_str = methods_desc.get(method, "попытался проникнуть в сейф")
 
     if is_success:
-        # Успех соло: выносит от 8% до 15% свободной казны
-        loot_percent = random.uniform(0.08, 0.15)
+        # Успех соло: выносит от 5% до 10% свободной казны
+        loot_percent = random.uniform(0.05, 0.10)
         loot_amount = round(robbable * loot_percent, 2)
         stolen = treasury_manager.take_from_treasury(
             loot_amount,
@@ -367,7 +368,7 @@ async def callback_solo_exec(callback: CallbackQuery):
             gang_names=[user_name]
         )
         economy_manager.add_money(user_id, stolen)
-        treasury_manager.set_heist_cooldown(TREASURY_HEIST_CD)
+        # Соло налёт НЕ блокирует казну для остальных игроков!
 
         new_bal = economy_manager.get_balance(user_id)
         res_text = (
@@ -450,9 +451,9 @@ def format_gang_lobby_text(lobby: Dict[str, Any]) -> str:
     rem_time = max(0, int(lobby["expires_at"] - time.time()))
     robbable = treasury_manager.get_robbable_amount()
 
-    # Считаем текущий шанс
+    # Считаем сбалансированный шанс (20% - 45%)
     cnt = len(members)
-    est_chance = min(88, 30 + (cnt * 14))
+    est_chance = min(45, 15 + (cnt * 7))
 
     roster_lines = []
     for r_key, r_info in ROLES_INFO.items():
@@ -892,17 +893,34 @@ async def execute_gang_heist(bot: Bot, chat_id: int, lobby: Dict[str, Any]):
         robbable = treasury_manager.get_robbable_amount()
         _, _, sec_tier = treasury_manager.get_security_level()
 
-        # Базовая вероятность победы
+        # Сбалансированная вероятность победы банды:
+        # База: 10%
+        # Бонус за бойцов: +5% за каждого (2-4 бойца = +10%..+20%)
+        # Бонус за все 4 уникальные роли: +5%
+        # Бонус за правильные QTE: +4% за каждое (3 QTE = +12%)
+        # Штраф за ошибки в QTE: -8% за каждую ошибку
+        # Штраф за уровень охраны: -4% за каждый тир (тиры 1-4)
         member_cnt = len(members)
-        # Каждая роль дает +12%, каждый правильный QTE +8%, штраф за уровень охраны -4%
-        calc_chance = 0.30 + (member_cnt * 0.12) + (qte_successes * 0.08) - (sec_tier * 0.04)
-        calc_chance = min(0.92, max(0.25, calc_chance))
+        roles_set = {m["role"] for m in members.values()}
+        role_diversity_bonus = 0.05 if len(roles_set) == 4 else (0.02 if len(roles_set) == 3 else 0.0)
+        failed_qtes = 3 - qte_successes
+
+        calc_chance = (
+            0.10
+            + (member_cnt * 0.05)
+            + role_diversity_bonus
+            + (qte_successes * 0.04)
+            - (failed_qtes * 0.08)
+            - (sec_tier * 0.04)
+        )
+        # Потолок шанса на победу: максимум 45%, минимум 10%
+        calc_chance = min(0.45, max(0.10, calc_chance))
 
         is_victory = random.random() < calc_chance
 
         if is_victory:
-            # Успех банды: забирают от 30% до 50% свободной казны
-            loot_pct = random.uniform(0.30, 0.48)
+            # Успех банды: забирают от 20% до 35% свободной казны
+            loot_pct = random.uniform(0.20, 0.35)
             total_loot = round(robbable * loot_pct, 2)
             gang_names = [m["name"] for m in members.values()]
 
@@ -987,3 +1005,15 @@ async def callback_qte_click(callback: CallbackQuery):
         await callback.answer(f"🎯 ИДЕАЛЬНО! {user_name} выбрал(а) верное действие!", show_alert=True)
     else:
         await callback.answer(f"❌ Неверный выбор! Система зафиксировала ошибку!", show_alert=True)
+
+
+@router.message(Command("reset_heist_cd", "сброс_карантина_казны", "казна_сброс_кд"))
+async def reset_heist_cd_cmd(message: Message):
+    """Команда для администраторов: мгновенно снять карантин с казны."""
+    from utils.admin_manager import AdminManager
+    if not AdminManager().is_admin(message.from_user.id):
+        return
+    treasury_manager.heist_cooldown_until = 0.0
+    treasury_manager.save_data()
+    await message.reply("✅ <b>Карантин и усиленная охрана казны сброшены!</b>\nКазна снова открыта для налётов.", parse_mode="HTML")
+
