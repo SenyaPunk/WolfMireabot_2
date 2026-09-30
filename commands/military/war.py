@@ -322,3 +322,12 @@ async def withdraw_bank_cmd(message: Message):
 
     success, result_msg = army_manager.withdraw_from_bank(commander_id, amount)
     await message.reply(result_msg, parse_mode="HTML")
+
+
+@router.message(Command("escape", "побег", "сбежать", "рывок"))
+async def escape_cmd(message: Message):
+    """Попытка военнопленного совершить побег из застенков врага."""
+    user_id = message.from_user.id
+    success, result_msg = army_manager.escape_from_prison(user_id)
+    await message.reply(result_msg, parse_mode="HTML")
+

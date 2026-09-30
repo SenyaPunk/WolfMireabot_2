@@ -185,23 +185,42 @@ class WarManager:
         att_upgrades = self.army_manager.get_army_upgrades(attacker_key)
         def_upgrades = self.army_manager.get_army_upgrades(defender_key)
 
-        # Проверяем боеспособность атакующего (штурмовики ИЛИ укрепрайон)
+        # Проверяем боеспособность атакующего
         attacker_members = user_army.get("members", {})
         attacker_mobilized = [m for m in attacker_members.values() if m.get("rank") == RANK_MOBILIZED]
         if not attacker_mobilized and att_upgrades.get("fortress", 0) == 0:
-            return False, (
-                f"❌ В вашей армии нет мобилизованных штурмовиков на передке и не возведён укрепрайон!\n"
-                f"💡 Отправьте бойцов на передок (<code>/мобилизация [число]</code>) или постройте фортификации (<code>/прокачать база</code>)."
-            ), None
+            # Главком сам ведет войско в бой лично или берем рядовых добровольцев
+            cmd_member = attacker_members.get(str(commander_id))
+            if cmd_member:
+                attacker_mobilized = [cmd_member]
+            else:
+                att_privates = [m for m in attacker_members.values() if m.get("rank") == RANK_DEFAULT]
+                if att_privates:
+                    attacker_mobilized = att_privates[:3]
+                else:
+                    return False, "❌ В вашей армии нет доступных бойцов для начала спецоперации!", None
 
-        # Проверяем боеспособность защитника (штурмовики ИЛИ укрепрайон)
+        # Проверяем боеспособность защитника (устраняем неуязвимость армий)
         defender_members = defender_army.get("members", {})
         defender_mobilized = [m for m in defender_members.values() if m.get("rank") == RANK_MOBILIZED]
         if not defender_mobilized and def_upgrades.get("fortress", 0) == 0:
-            return False, (
-                f"❌ Армия противника «<b>{html.escape(defender_army['name'])}</b>» не имеет ни штурмовиков (0 мобилизованных), ни укрепрайона!\n"
-                f"💡 Подождите, пока их Главком проведёт мобилизацию или возведёт оборону."
-            ), None
+            # Поднимаем гарнизон противника по тревоге
+            def_privates = [m for m in defender_members.values() if m.get("rank") == RANK_DEFAULT]
+            if def_privates:
+                auto_mob = def_privates[:3]
+                now_ts = time.time()
+                for m in auto_mob:
+                    m["rank"] = RANK_MOBILIZED
+                    m["mobilized_at"] = now_ts
+                    m["status"] = "frontline"
+                defender_mobilized = auto_mob
+                self.army_manager.save_armies()
+            else:
+                def_lead = next((m for m in defender_members.values() if m.get("rank") == RANK_CREATOR), None)
+                if def_lead:
+                    defender_mobilized = [def_lead]
+                else:
+                    return False, f"❌ Армия противника «<b>{html.escape(defender_army['name'])}</b>» расформирована или пуста!", None
 
         now = time.time()
         war_id = f"svo_{int(now)}_{uuid.uuid4().hex[:6]}"
@@ -345,16 +364,34 @@ class WarManager:
             return False, "❌ Ваша армия сейчас не ведёт боевых действий на СВО.", None
 
         if not soldier:
-            # Проверяем, может пользователь вообще рядовой?
             army_key = self.army_manager.get_user_army_key(user_id)
             army, m_info = self.army_manager.get_user_army(user_id)
-            if m_info and m_info.get("rank") == RANK_DEFAULT:
+            if m_info and m_info.get("rank") == RANK_CREATOR:
+                # Главнокомандующий лично возглавляет штурм
+                upgrades = war.get(f"{side}_upgrades", {})
+                med_lvl = upgrades.get("medicine", 0)
+                max_hp = 100 + (med_lvl * 10)
+                soldier = {
+                    "user_id": user_id,
+                    "name": m_info.get("name", "Главнокомандующий"),
+                    "army_name": army["name"],
+                    "hp": max_hp,
+                    "max_hp": max_hp,
+                    "is_defending_until": 0.0,
+                    "status": "active",
+                    "damage_dealt": 0,
+                    "kills": 0,
+                    "assaults": 0
+                }
+                war[f"{side}_soldiers"][str(user_id)] = soldier
+            elif m_info and m_info.get("rank") == RANK_DEFAULT:
                 return False, (
                     "🛡️ <b>Вы находитесь в тыловом резерве (Рядовой)!</b>\n"
-                    "Штурмовать позиции врага могут только мобилизованные <b>Штурмовики</b> на передке.\n"
-                    "💡 Ваша задача — помогать раненым (<code>/медпомощь</code>) и подвозить боеприпасы (<code>/снабжение</code>)!"
+                    "Чтобы лично идти в штурм, отправьтесь добровольцем: <code>/на_фронт</code>!\n"
+                    "💡 Либо помогайте раненым (<code>/медпомощь</code>) и подвозите боеприпасы (<code>/снабжение</code>)!"
                 ), None
-            return False, "❌ Вы не состоите в штурмовом отряде этой операции.", None
+            else:
+                return False, "❌ Вы не состоите в штурмовом отряде этой операции.", None
 
         if soldier.get("status") == "wounded":
             return False, (
@@ -530,7 +567,27 @@ class WarManager:
             return False, "❌ Ваша армия сейчас не ведёт боевых действий на СВО.", None
 
         if not soldier:
-            return False, "❌ Окапываться на передовой могут только штурмовики на передке!", None
+            army_key = self.army_manager.get_user_army_key(user_id)
+            army, m_info = self.army_manager.get_user_army(user_id)
+            if m_info and m_info.get("rank") == RANK_CREATOR:
+                upgrades = war.get(f"{side}_upgrades", {})
+                med_lvl = upgrades.get("medicine", 0)
+                max_hp = 100 + (med_lvl * 10)
+                soldier = {
+                    "user_id": user_id,
+                    "name": m_info.get("name", "Главнокомандующий"),
+                    "army_name": army["name"],
+                    "hp": max_hp,
+                    "max_hp": max_hp,
+                    "is_defending_until": 0.0,
+                    "status": "active",
+                    "damage_dealt": 0,
+                    "kills": 0,
+                    "assaults": 0
+                }
+                war[f"{side}_soldiers"][str(user_id)] = soldier
+            else:
+                return False, "❌ Окапываться на передовой могут только штурмовики на передке!", None
 
         if soldier.get("status") != "active":
             return False, "❌ Вы не можете занять оборону в текущем состоянии!", None

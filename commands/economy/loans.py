@@ -763,6 +763,24 @@ async def take_contract_command(message: Message):
     await message.reply(res_text, parse_mode="HTML")
 
 
+@router.message(Command("release_contract", "отказаться_от_дела", "сдать_ордер", "отменить_контракт"))
+async def release_contract_command(message: Message):
+    user_id = message.from_user.id
+    coll = loan_manager.get_collector(user_id)
+    if not coll or not coll.get("active_contract"):
+        await send_error_message(message, "❌ У вас нет активного контракта в работе!")
+        return
+
+    debtor_id = coll["active_contract"].get("debtor_id")
+    loan_manager.release_contract(user_id, penalty_strike=False)
+    await message.reply(
+        f"📁 <b>Ордер сдан!</b>\n"
+        f"Дело должника <code>{debtor_id}</code> снято с разработки без штрафов.",
+        parse_mode="HTML"
+    )
+
+
+
 # =================================================================
 # 3. ИСПОЛНИТЕЛЬНЫЕ ДЕЙСТВИЯ КОЛЛЕКТОРА (РЕЙД, НАЕЗД, ЗВОНОК)
 # =================================================================

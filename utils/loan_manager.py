@@ -414,6 +414,9 @@ class LoanManager:
         if hist.get("successful_loans", 0) < tariff["req_loans"]:
             return False, f"❌ Для тарифа «{tariff['name']}» необходимо минимум {tariff['req_loans']} успешно закрытых займов (у вас: {hist.get('successful_loans', 0)})."
 
+        if tariff_key in ("standard", "premium") and hist.get("successful_loans", 0) < 3:
+            return False, f"❌ Служба безопасности: для доступа к тарифу «{tariff['name']}» требуется подтвержденная кредитная история (минимум 3 закрытых займа)."
+
         if amount < tariff["min_amount"] or amount > tariff["max_amount"]:
             return False, f"❌ Для тарифа «{tariff['name']}» сумма должна быть от <b>{tariff['min_amount']}</b> до <b>{tariff['max_amount']}</b> монет."
 
@@ -593,14 +596,30 @@ class LoanManager:
 
     def get_all_overdue_loans(self) -> List[Tuple[int, Dict[str, Any]]]:
         """Возвращает список должников с просроченными займами для биржи коллекторов."""
+        from utils.slave_manager import SlaveManager
+        slave_mgr = SlaveManager()
         now = time.time()
         overdue_list = []
         for uid, user_loans in self.loans.items():
-            user_overdue = [l for l in user_loans if l.get("status") == "overdue" or l.get("due_at", 0) < now]
+            user_overdue = [
+                l for l in user_loans
+                if (l.get("status") == "overdue" or l.get("due_at", 0) < now)
+                and l.get("status") not in ("defaulted", "written_off")
+            ]
             if user_overdue:
+                earliest_due = min(l.get("due_at", 0) for l in user_overdue)
+                # Проверка на безнадежный долг (списание твинков/мертвых аккаунтов):
+                # Если долг просрочен более 3 суток (259200s), баланс заемщика 0 и нет владельца
+                debtor_bal = self.economy_manager.get_balance(uid)
+                owner_id = slave_mgr.get_owner(uid)
+                if (now - earliest_due > 259200) and debtor_bal <= 0.0 and not owner_id:
+                    for l in user_overdue:
+                        l["status"] = "defaulted"
+                    self.save_data()
+                    continue
+
                 total_debt = round(sum(l.get("debt", 0.0) for l in user_overdue), 2)
                 coll_id = next((l.get("collector_contract") for l in user_overdue if l.get("collector_contract")), None)
-                earliest_due = min(l.get("due_at", 0) for l in user_overdue)
                 overdue_list.append((uid, {
                     "debt": total_debt,
                     "count": len(user_overdue),

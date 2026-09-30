@@ -14,7 +14,8 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    FSInputFile
+    FSInputFile,
+    User
 )
 
 from utils.economy_manager import EconomyManager
@@ -482,14 +483,18 @@ def format_gang_lobby_text(lobby: Dict[str, Any]) -> str:
 
 
 @router.message(Command("gang_heist", "банда_ограбление", "ограбление_банда", "ограбить_бандой"))
-async def gang_heist_command(message: Message, bot: Bot):
+async def gang_heist_command(message: Message, bot: Bot, user: Optional[User] = None):
     if message.chat.type == "private":
         await send_error_message(message, "Командное ограбление доступно только в групповых чатах!")
         return
 
+    actor = user or message.from_user
+    if not actor or actor.is_bot:
+        return
+
     chat_id = message.chat.id
-    user_id = message.from_user.id
-    user_name = message.from_user.first_name
+    user_id = actor.id
+    user_name = actor.first_name or f"ID: {user_id}"
 
     if chat_id in active_heists:
         await message.reply("⏳ В этом чате прямо сейчас уже идет штурм сейфа!")
@@ -556,7 +561,10 @@ async def callback_start_gang_from_menu(callback: CallbackQuery, bot: Bot):
     if callback.message.chat.type == "private":
         await callback.answer("Командное ограбление доступно только в группах!", show_alert=True)
         return
-    await gang_heist_command(callback.message, bot)
+    if callback.from_user.is_bot:
+        await callback.answer("Боты не могут грабить казну!", show_alert=True)
+        return
+    await gang_heist_command(callback.message, bot, user=callback.from_user)
     await callback.answer()
 
 
@@ -614,7 +622,10 @@ async def callback_gang_join(callback: CallbackQuery, bot: Bot):
         return
 
     user_id = callback.from_user.id
-    user_name = callback.from_user.first_name
+    if callback.from_user.is_bot:
+        await callback.answer("Боты не могут участвовать в банде!", show_alert=True)
+        return
+    user_name = callback.from_user.first_name or f"ID: {user_id}"
 
     u_cd = cooldown_manager.check_cooldown(f"heist_user:{user_id}", USER_HEIST_COOLDOWN)
     if u_cd is not None:

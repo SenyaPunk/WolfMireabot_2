@@ -64,6 +64,18 @@ async def war_monitor(bot: Bot):
                         except Exception as e:
                             logger.warning(f"Ошибка отправки победного рапорта СВО в чат {chat_id}: {e}")
 
+            # 3. Контроль военнопленных (авто-освобождение по истечении 48 часов)
+            from utils.army_manager import ArmyManager
+            import time
+            am = ArmyManager()
+            now = time.time()
+            for a_key, a_data in list(am.armies.items()):
+                for p in list(a_data.get("prisoners", [])):
+                    if now - p.get("captured_at", now) > 172800:
+                        a_data.get("prisoners", []).remove(p)
+                        am.save_armies()
+                        logger.info(f"Пленный {p.get('user_id')} освобожден по истечении 48 часов конвенции")
+
         except Exception as e:
             logger.error(f"Непредвиденная ошибка в war_monitor: {e}", exc_info=True)
 

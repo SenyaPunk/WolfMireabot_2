@@ -21,8 +21,12 @@ async def safe_edit_message_text(bot: Bot, chat_id: int, message_id: int, text: 
             )
             return True
         except TelegramRetryAfter as e:
-            logger.warning(f"TelegramRetryAfter in edit_message_text: waiting {e.retry_after}s (attempt {attempt + 1}/3)")
-            await asyncio.sleep(e.retry_after + 0.5)
+            wait_time = min(float(e.retry_after) + 0.2, 2.5)
+            logger.warning(f"TelegramRetryAfter in edit_message_text: waiting {wait_time}s (telegram asked {e.retry_after}s, attempt {attempt + 1}/3)")
+            await asyncio.sleep(wait_time)
+            if e.retry_after > 5:
+                # Не висеть в долгом цикле ожидания Telegram
+                return False
         except TelegramBadRequest as e:
             err_msg = str(e).lower()
             if "message is not modified" in err_msg:

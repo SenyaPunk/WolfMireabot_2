@@ -128,8 +128,11 @@ async def loan_monitor(bot: Bot):
                     # Срок контракта истек
                     if now > expires_at:
                         debtor_id = contract.get("debtor_id")
-                        if actions_done == 0:
-                            # Коллектор заблокировал дело и ничего не сделал -> Санкция за халатность!
+                        debtor_bal = economy_manager.get_balance(debtor_id)
+                        owner_id = slave_manager.get_owner(debtor_id)
+
+                        if actions_done == 0 and (debtor_bal > 10.0 or owner_id):
+                            # Коллектор заблокировал реальное дело и ничего не сделал -> Санкция за халатность!
                             strikes, ban_time, desc = loan_manager.apply_sanction(
                                 collector_id,
                                 f"Халатность: ордер на должника {debtor_id} истек без единого действия"
@@ -146,12 +149,12 @@ async def loan_monitor(bot: Bot):
                             except Exception:
                                 pass
                         else:
-                            # Коллектор пытался, но срок ордера вышел без санкции
+                            # Коллектор пытался, либо у должника 0 монет и нет владельца (взыскание невозможно)
                             loan_manager.release_contract(collector_id, penalty_strike=False)
                             try:
                                 await bot.send_message(
                                     chat_id=collector_id,
-                                    text=f"⌛ Срок вашего ордера на должника {debtor_id} истек. Дело возвращено на биржу.",
+                                    text=f"⌛ Срок вашего ордера на должника {debtor_id} истек. Санкции не применены.",
                                     parse_mode="HTML"
                                 )
                             except Exception:

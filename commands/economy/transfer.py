@@ -95,6 +95,18 @@ async def transfer_command(message: Message):
         await send_error_message(message, "Вы не можете перевести деньги самому себе.")
         return
 
+    sender_balance = economy_manager.get_balance(sender_id)
+    if sender_balance < amount:
+        sender_link = get_user_link(sender_id)
+        await message.reply(
+            f"❌ {sender_link}, у вас недостаточно средств для перевода.\n"
+            f"💰 Ваш баланс: <b>{sender_balance:.2f}</b> монет\n"
+            f"💸 Требуется: <b>{amount:.2f}</b> монет",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        return
+
     # Проверка на арест счетов коллекторами при просроченном займе
     from utils.loan_manager import LoanManager
     loan_mgr = LoanManager()
@@ -109,17 +121,19 @@ async def transfer_command(message: Message):
         )
         return
 
-    sender_balance = economy_manager.get_balance(sender_id)
-    if sender_balance < amount:
-        sender_link = get_user_link(sender_id)
-        await message.reply(
-            f"❌ {sender_link}, у вас недостаточно средств для перевода.\n"
-            f"💰 Ваш баланс: <b>{sender_balance:.2f}</b> монет\n"
-            f"💸 Требуется: <b>{amount:.2f}</b> монет",
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-        return
+    # Защита от вывода заемных кредитных средств твинками
+    total_active_debt = loan_mgr.get_total_debt(sender_id)
+    if total_active_debt > 0:
+        unencumbered_balance = sender_balance - total_active_debt
+        if amount > unencumbered_balance:
+            await send_error_message(
+                message,
+                f"🔒 <b>Ограничение кредитного контроля!</b>\n\n"
+                f"У вас имеются непогашенные займы на сумму <b>{total_active_debt:.2f}</b> монет.\n"
+                f"Вывод и перевод кредитных средств запрещён правилами МФО.\n"
+                f"Свободно для перевода: <b>{max(0.0, unencumbered_balance):.2f}</b> монет."
+            )
+            return
     
     # Если перевод адресован боту — отправляем сразу в Государственную Казну
     bot_id = message.bot.id if message.bot else None

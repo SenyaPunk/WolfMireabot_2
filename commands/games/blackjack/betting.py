@@ -23,7 +23,7 @@ economy_manager = EconomyManager()
 user_storage = UserStorage()
 
 BET_AMOUNTS = [10, 25, 50, 100]
-BUTTON_COOLDOWN = 0.5  
+BUTTON_COOLDOWN = 1.0  
 FIRST_WARNING_TIME = 30  
 AUTO_BET_TIME = 60  
 MIN_AUTO_BET = 10  
@@ -31,6 +31,13 @@ MIN_AUTO_BET = 10
 button_cooldowns = {}
 player_timers = {}
 deletion_tasks = {}
+betting_locks: dict[str, asyncio.Lock] = {}
+
+
+def get_betting_lock(game_key: str) -> asyncio.Lock:
+    if game_key not in betting_locks:
+        betting_locks[game_key] = asyncio.Lock()
+    return betting_locks[game_key]
 
 
 def get_user_mention(user_id: int) -> str:
@@ -332,17 +339,9 @@ async def show_betting_message(bot: Bot, chat_id: int, game_key: str, game_state
                 player_timers[game_key] = timer_task
         else:
             if old_betting_message_id:
-                edited = await safe_edit_message_text(
+                await safe_edit_message_text(
                     bot, chat_id=chat_id, message_id=old_betting_message_id, text=text, reply_markup=keyboard, parse_mode="HTML"
                 )
-                if not edited:
-                    await safe_delete_message(bot, chat_id, old_betting_message_id)
-                    msg = await safe_send_message(
-                        bot, chat_id=chat_id, text=text, reply_markup=keyboard, parse_mode="HTML"
-                    )
-                    if msg:
-                        game_data["betting_message_id"] = msg.message_id
-                        game_state_manager.update_game(game_key, game_data)
             else:
                 msg = await safe_send_message(
                     bot, chat_id=chat_id, text=text, reply_markup=keyboard, parse_mode="HTML"
@@ -421,103 +420,105 @@ async def betting_callback(callback: CallbackQuery, bot: Bot):
     
     game_state_manager = GameStateManager()
     game_key = f"blackjack_game:{chat_id}"
-    game_data = game_state_manager.get_game(game_key)
-    
-    if not game_data or game_data.get("stage") != "betting":
-        try:
-            await callback.answer("⏰ Прием ставок уже завершен", show_alert=True)
-        except Exception:
-            pass
-        return
-    
-    players = game_data.get("players", [])
-    current_index = game_data.get("current_player_index", 0)
-    
-    if current_index >= len(players):
-        try:
-            await callback.answer("⏰ Прием ставок завершен", show_alert=True)
-        except Exception:
-            pass
-        return
-    
-    current_player = players[current_index]
-    
-    if current_player["user_id"] != user_id:
-        try:
-            await callback.answer("⏸️ Сейчас не ваш ход", show_alert=True)
-        except Exception:
-            pass
-        return
-    
-    current_bet = game_data.get("current_bet", 0)
-    balance = economy_manager.get_balance(user_id)
-    
-    if action == "reset":
-        game_data["current_bet"] = 0
-        game_state_manager.update_game(game_key, game_data)
-        try:
-            await callback.answer("🔄 Ставка сброшена")
-        except Exception:
-            pass
-        await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=False)
+
+    async with get_betting_lock(game_key):
+        game_data = game_state_manager.get_game(game_key)
         
-    elif action == "accept":
-        if current_bet == 0:
+        if not game_data or game_data.get("stage") != "betting":
             try:
-                await callback.answer("❌ Сначала сделайте ставку!", show_alert=True)
+                await callback.answer("⏰ Прием ставок уже завершен", show_alert=True)
+            except Exception:
+                pass
+            return
+    
+        players = game_data.get("players", [])
+        current_index = game_data.get("current_player_index", 0)
+        
+        if current_index >= len(players):
+            try:
+                await callback.answer("⏰ Прием ставок завершен", show_alert=True)
             except Exception:
                 pass
             return
         
-        cancel_player_timer(game_key)
-        await delete_player_warning_messages(bot, chat_id, game_key, user_id, game_state_manager)
+        current_player = players[current_index]
         
-        bets = game_data.get("bets", {})
-        bets[str(user_id)] = current_bet
-        game_data["bets"] = bets
-        game_data["current_bet"] = 0
-        game_data["current_player_index"] = current_index + 1
-        
-        game_state_manager.update_game(game_key, game_data)
-        
-        try:
-            await callback.answer(f"✅ Ставка {current_bet} монет принята!")
-        except Exception:
-            pass
-        
-        await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=True)
-        
-    else:
-        try:
-            bet_amount = int(action)
-            
-            if bet_amount not in BET_AMOUNTS:
-                try:
-                    await callback.answer("❌ Неверная сумма ставки", show_alert=True)
-                except Exception:
-                    pass
-                return
-            
-            new_bet = current_bet + bet_amount
-            
-            if new_bet > balance:
-                try:
-                    await callback.answer("❌ Недостаточно средств!", show_alert=True)
-                except Exception:
-                    pass
-                return
-            
-            game_data["current_bet"] = new_bet
-            game_state_manager.update_game(game_key, game_data)
-            
+        if current_player["user_id"] != user_id:
             try:
-                await callback.answer(f"💰 +{bet_amount} монет (всего: {new_bet})")
+                await callback.answer("⏸️ Сейчас не ваш ход", show_alert=True)
+            except Exception:
+                pass
+            return
+        
+        current_bet = game_data.get("current_bet", 0)
+        balance = economy_manager.get_balance(user_id)
+        
+        if action == "reset":
+            game_data["current_bet"] = 0
+            game_state_manager.update_game(game_key, game_data)
+            try:
+                await callback.answer("🔄 Ставка сброшена")
             except Exception:
                 pass
             await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=False)
             
-        except ValueError:
+        elif action == "accept":
+            if current_bet == 0:
+                try:
+                    await callback.answer("❌ Сначала сделайте ставку!", show_alert=True)
+                except Exception:
+                    pass
+                return
+            
+            cancel_player_timer(game_key)
+            await delete_player_warning_messages(bot, chat_id, game_key, user_id, game_state_manager)
+            
+            bets = game_data.get("bets", {})
+            bets[str(user_id)] = current_bet
+            game_data["bets"] = bets
+            game_data["current_bet"] = 0
+            game_data["current_player_index"] = current_index + 1
+            
+            game_state_manager.update_game(game_key, game_data)
+            
             try:
-                await callback.answer("❌ Ошибка обработки ставки", show_alert=True)
+                await callback.answer(f"✅ Ставка {current_bet} монет принята!")
             except Exception:
                 pass
+            
+            await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=True)
+            
+        else:
+            try:
+                bet_amount = int(action)
+                
+                if bet_amount not in BET_AMOUNTS:
+                    try:
+                        await callback.answer("❌ Неверная сумма ставки", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+                
+                new_bet = current_bet + bet_amount
+                
+                if new_bet > balance:
+                    try:
+                        await callback.answer("❌ Недостаточно средств!", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+                
+                game_data["current_bet"] = new_bet
+                game_state_manager.update_game(game_key, game_data)
+                
+                try:
+                    await callback.answer(f"💰 +{bet_amount} монет (всего: {new_bet})")
+                except Exception:
+                    pass
+                await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=False)
+                
+            except ValueError:
+                try:
+                    await callback.answer("❌ Ошибка обработки ставки", show_alert=True)
+                except Exception:
+                    pass

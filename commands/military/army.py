@@ -489,3 +489,12 @@ async def army_help_cmd(message: Message):
         "💡 <i>Следите за фронтом в реальном времени:</i> <code>/сводка</code>"
     )
     await message.reply(help_text, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command("to_front", "на_фронт", "доброволец", "в_штурмовики"))
+async def volunteer_cmd(message: Message):
+    """Добровольное отправление бойца на передок в штурмовики."""
+    user_id = message.from_user.id
+    success, result_msg, _ = army_manager.volunteer_to_front(user_id)
+    await message.reply(result_msg, parse_mode="HTML")
+

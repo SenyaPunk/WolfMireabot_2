@@ -938,3 +938,95 @@ class ArmyManager:
         lines.append("• <code>/прокачать снабжение</code> — логистика и увеличенные трофеи")
 
         return "\n".join(lines)
+
+    def volunteer_to_front(self, user_id: int) -> Tuple[bool, str, Optional[dict]]:
+        """Боец добровольно отправляется на передок в штурмовики."""
+        army_key = self.get_user_army_key(user_id)
+        if not army_key or army_key not in self.armies:
+            return False, "❌ Вы не состоите ни в одной армии.", None
+
+        is_pow, captor_key, _ = self.is_user_prisoner(user_id)
+        if is_pow:
+            return False, "⛓️ Вы находитесь в плену врага и не можете отправиться на фронт!", None
+
+        army = self.armies[army_key]
+        member = army.get("members", {}).get(str(user_id))
+        if not member:
+            return False, "❌ Ошибка: боец не найден в списке армии.", None
+
+        if member.get("rank") == RANK_MOBILIZED:
+            return False, "⚔️ Вы уже находитесь на передке в статусе Штурмовика!", None
+
+        now = time.time()
+        member["rank"] = RANK_MOBILIZED
+        member["mobilized_at"] = now
+        member["status"] = "frontline"
+        self.save_armies()
+
+        # Если прямо сейчас идет СВО - сразу включаем в боевой отряд
+        try:
+            from utils.war_manager import WarManager
+            wm = WarManager()
+            war = wm.get_war_by_army(army_key)
+            if war and war.get("status") == "active":
+                side = "attacker" if war["attacker_key"] == army_key else "defender"
+                upgrades = war.get(f"{side}_upgrades", {})
+                med_lvl = upgrades.get("medicine", 0)
+                max_hp = 100 + (med_lvl * 10)
+                war[f"{side}_soldiers"][str(user_id)] = {
+                    "user_id": user_id,
+                    "name": member.get("name", "Доброволец"),
+                    "army_name": army["name"],
+                    "hp": max_hp,
+                    "max_hp": max_hp,
+                    "is_defending_until": 0.0,
+                    "status": "active",
+                    "damage_dealt": 0,
+                    "kills": 0,
+                    "assaults": 0
+                }
+                wm.save_wars()
+        except Exception as e:
+            logger.warning(f"Error registering volunteer in active war: {e}")
+
+        return True, (
+            f"⚔️ <b>ВЫ ВСТУПИЛИ В ШТУРМОВОЙ ОТРЯД ДОБРОВОЛЬЦЕМ!</b>\n"
+            f"Теперь вы на передке армии «<b>{html.escape(army['name'])}</b>»!\n"
+            f"Вам доступны команды штурма: <code>/штурм</code> и <code>/оборона</code>."
+        ), member
+
+    def escape_from_prison(self, user_id: int) -> Tuple[bool, str]:
+        """Попытка военнопленного сбежать из застенков вражеской армии."""
+        is_pow, captor_key, prisoner_info = self.is_user_prisoner(user_id)
+        if not is_pow or not captor_key or not prisoner_info:
+            return False, "🕊️ Вы не находитесь в плену!"
+
+        now = time.time()
+        from utils.cooldown_manager import CooldownManager
+        cooldown_mgr = CooldownManager()
+        cd_left = cooldown_mgr.check_cooldown(f"pow_escape:{user_id}", 3600)  # 1 час перезарядка
+        if cd_left:
+            mins = int(cd_left // 60)
+            return False, f"⏳ Охрана удвоила бдительность после недавней попытки! Следующий рывок через <b>{mins} мин</b>."
+
+        cooldown_mgr.set_cooldown(f"pow_escape:{user_id}")
+        captor_army = self.armies.get(captor_key, {})
+        captor_name = captor_army.get("name", "врага")
+
+        captured_at = prisoner_info.get("captured_at", now)
+        chance = 0.70 if (now - captured_at > 43200) else 0.40
+
+        if random.random() < chance:
+            captor_army.get("prisoners", []).remove(prisoner_info)
+            self.save_armies()
+            return True, (
+                f"🏃‍♂️💨 <b>ДЕРЗКИЙ ПОБЕГ ИЗ ПЛЕНА УВЕНЧАЛСЯ УСПЕХОМ!</b>\n\n"
+                f"Вы перелезли через колючую проволоку лагеря «<b>{html.escape(captor_name)}</b>», "
+                f"скрылись в тумане и благополучно вышли к своим позициям! Вы свободны!"
+            )
+        else:
+            return False, (
+                f"🚨 <b>ПОБЕГ ПРОВАЛЕН!</b>\n"
+                f"Патруль армии «<b>{html.escape(captor_name)}</b>» перехватил вас у ограждения лагеря!\n"
+                f"Вас вернули в барак под усиленный конвой. Повторить попытку можно через 1 час."
+            )
