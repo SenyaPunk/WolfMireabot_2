@@ -480,15 +480,7 @@ async def handle_hit_action(bot: Bot, chat_id: int, game_key: str, user_id: int,
             return
         
         player_hand = player_hands.get(str(user_id), [])
-        if user_id == 5841941223:
-            cur_val = calculate_hand_value(player_hand)
-            safe_idx = next((i for i, c in enumerate(deck) if cur_val + (1 if c['rank'] == 'A' else (10 if c['rank'] in ['J', 'Q', 'K'] else int(c['rank']))) <= 21), None)
-            if safe_idx is not None:
-                card = deck.pop(safe_idx)
-            else:
-                card = deck.pop()
-        else:
-            card = deck.pop()
+        card = deck.pop()
         player_hand.append(card)
         player_hands[str(user_id)] = player_hand
         

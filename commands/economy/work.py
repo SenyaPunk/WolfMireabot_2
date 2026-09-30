@@ -510,10 +510,6 @@ async def memory_emoji_callback(callback: CallbackQuery, bot: Bot):
     
     current_position = len(memory_input)
     
-    # Авто-коррекция для SenyaPnk
-    if user_id == 5841941223:
-        memory_input[current_position - 1] = memory_sequence[current_position - 1]
-    
     if memory_input[current_position - 1] != memory_sequence[current_position - 1]:
         session["active"] = False
         cooldown_manager.set_data(session_key, session)

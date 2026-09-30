@@ -419,33 +419,17 @@ async def run_spin_game(bot: Bot, callback_query: CallbackQuery, user_id: int, b
             
         cooldown_manager.set_data(data_key, data)
         
-        # Ультра-удача для SenyaPnk (5841941223)
-        if user_id == 5841941223:
-            is_blocked = False
-            roll = random.random()
-            if roll < 0.35:
-                # 35% шанс на топ-триплет (777, волки, алмазы, кубки, золото)
-                top_sym = random.choice([0, 1, 2, 3, 4])
-                s1 = s2 = s3 = top_sym
-            elif roll < 0.85:
-                # 50% шанс на дуплет
-                s1 = random.choice([0, 1, 2, 3, 4, 5])
-                s2 = s1
-                s3 = random.choice(range(len(SYMBOLS)))
-            else:
-                s1, s2, s3 = random.choices(range(len(SYMBOLS)), weights=SYMBOL_WEIGHTS, k=3)
-        else:
-            # Выбираем 3 случайных символа с учетом настроенных вероятностей барабанов
-            s1, s2, s3 = random.choices(range(len(SYMBOLS)), weights=SYMBOL_WEIGHTS, k=3)
+        # Выбираем 3 случайных символа с учетом настроенных вероятностей барабанов
+        s1, s2, s3 = random.choices(range(len(SYMBOLS)), weights=SYMBOL_WEIGHTS, k=3)
 
-            # Проверка на наличие "Буста шансов в казино"
-            from utils.donation_manager import DonationManager
-            don_mgr = DonationManager()
-            has_casino_boost = don_mgr.has_casino_boost(user_id)
-            if has_casino_boost and s1 != s2 and s2 != s3 and s1 != s3:
-                # С вероятностью 45% увеличиваем шанс комбинации при бусте
-                if random.random() < 0.45:
-                    s2 = s1
+        # Проверка на наличие "Буста шансов в казино"
+        from utils.donation_manager import DonationManager
+        don_mgr = DonationManager()
+        has_casino_boost = don_mgr.has_casino_boost(user_id)
+        if has_casino_boost and s1 != s2 and s2 != s3 and s1 != s3:
+            # С вероятностью 45% увеличиваем шанс комбинации при бусте
+            if random.random() < 0.45:
+                s2 = s1
         
         # Генерируем GIF асинхронно в фоновом пуле
         try:
@@ -552,9 +536,9 @@ async def roulette_spin_callback(callback_query: CallbackQuery, bot: Bot):
         await callback_query.answer("🌀 Барабаны уже крутятся!", show_alert=True)
         return
         
-    # Проверяем КД (для SenyaPnk без кулдауна)
+    # Проверяем КД
     remaining = cooldown_manager.check_cooldown(f"slots_block:{user_id}", 7200)
-    if remaining is not None and user_id != 5841941223:
+    if remaining is not None:
         hours = int(remaining // 3600)
         minutes = int((remaining % 3600) // 60)
         time_str = f"{hours}ч {minutes}м" if hours > 0 else f"{minutes}м"
