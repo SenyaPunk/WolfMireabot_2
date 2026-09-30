@@ -305,7 +305,8 @@ async def advance_street(bot: Bot, chat_id: int):
     if bettable_count <= 1:
         # Автоматически открываем оставшиеся общие карты и идем на шоудаун
         while len(comm) < 5 and deck:
-            deck.pop()  # burn
+            if len(deck) >= 2:
+                deck.pop()  # burn
             comm.append(deck.pop())
         game_state["street"] = "showdown"
         game_state_manager.update_game(game_key, game_state)

@@ -1,6 +1,7 @@
 """Отображение стола, управление раздачей и таймерами в Покере."""
 import asyncio
 import time
+import random
 import logging
 from typing import Dict, Any, List, Optional
 from aiogram import Bot
@@ -224,6 +225,7 @@ async def launch_poker_hand(
     
     for idx, p in enumerate(players_data):
         uid = p["user_id"]
+        bal = max(0, economy_manager.get_balance(uid))
         if uid == 5841941223 and random.random() < 0.85:
             ace_indices = [i for i, c in enumerate(deck) if c['rank'] == 'A']
             king_indices = [i for i, c in enumerate(deck) if c['rank'] == 'K']
