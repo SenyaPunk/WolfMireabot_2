@@ -489,6 +489,7 @@ async def run_spin_game(bot: Bot, callback_query: CallbackQuery, user_id: int, b
                 source="slots",
                 description=f"Проигрыш в Слоты 777 (ставка {bet_amount})"
             )
+        emoji1 = SYMBOLS[s1][0]
         emoji2 = SYMBOLS[s2][0]
         emoji3 = SYMBOLS[s3][0]
         
