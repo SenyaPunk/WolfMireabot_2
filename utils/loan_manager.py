@@ -379,6 +379,18 @@ class LoanManager:
             )
 
         tariff = TARIFFS[tariff_key]
+
+        # Проверка кредитного карантина банкротства
+        from utils.bankruptcy_manager import BankruptcyManager
+        in_quar, rem_quar = BankruptcyManager().is_in_quarantine(user_id)
+        if in_quar:
+            days = int(rem_quar // 86400)
+            hours = int((rem_quar % 86400) // 3600)
+            return False, (
+                f"⚖️ <b>СУДЕБНЫЙ КРЕДИТНЫЙ КАРАНТИН!</b>\n\n"
+                f"Вы проходили процедуру банкротства. По закону выдача новых микрозаймов заблокирована судом ещё на <b>{days}д {hours}ч</b>."
+            )
+
         if tariff_key == "standard" and score < 50:
             return False, (
                 f"❌ <b>НЕДОСТАТОЧНЫЙ КРЕДИТНЫЙ РЕЙТИНГ!</b>\n\n"
@@ -586,6 +598,27 @@ class LoanManager:
 
         return True, "\n".join(lines), actual_paid
 
+    def clear_all_loans(self, user_id: int) -> float:
+        """Полностью аннулирует все займы пользователя по решению суда о банкротстве."""
+        user_loans = self.loans.get(user_id, [])
+        total_cleared = sum(l.get("debt", 0.0) for l in user_loans)
+
+        # Снимаем любые активные контракты коллекторов на этого должника
+        for coll_data in self.collectors.values():
+            contract = coll_data.get("active_contract")
+            if contract and contract.get("debtor_id") == user_id:
+                coll_data["active_contract"] = None
+
+        if user_id in self.loans:
+            del self.loans[user_id]
+
+        from utils.slave_manager import SlaveManager
+        SlaveManager().reset_price_penalty(user_id)
+
+        self.save_data()
+        logger.info(f"Судебное списание всех долгов пользователя {user_id}. Аннулировано: {total_cleared:.2f} монет.")
+        return round(total_cleared, 2)
+
     def has_overdue_loan(self, user_id: int) -> bool:
         """Проверяет, есть ли у игрока хотя бы один просроченный долг."""
         now = time.time()
@@ -597,10 +630,17 @@ class LoanManager:
     def get_all_overdue_loans(self) -> List[Tuple[int, Dict[str, Any]]]:
         """Возвращает список должников с просроченными займами для биржи коллекторов."""
         from utils.slave_manager import SlaveManager
+        from utils.bankruptcy_manager import BankruptcyManager
         slave_mgr = SlaveManager()
+        bk_mgr = BankruptcyManager()
         now = time.time()
         overdue_list = []
         for uid, user_loans in self.loans.items():
+            # Если должник под защитой Арбитражного суда (банкротство/иммунитет) — не выставляем на биржу
+            has_imm, _ = bk_mgr.has_immunity(uid)
+            if has_imm:
+                continue
+
             user_overdue = [
                 l for l in user_loans
                 if (l.get("status") == "overdue" or l.get("due_at", 0) < now)
@@ -803,6 +843,15 @@ class LoanManager:
 
         if not self.has_overdue_loan(debtor_id):
             return False, "❌ Этот заемщик не имеет просроченных задолженностей или уже закрыл долг!"
+
+        # Проверка судебного иммунитета должника
+        from utils.bankruptcy_manager import BankruptcyManager
+        has_imm, rem_imm = BankruptcyManager().has_immunity(debtor_id)
+        if has_imm:
+            days = int(rem_imm // 86400)
+            hours = int((rem_imm % 86400) // 3600)
+            dur_str = f" (иммунитет ещё {days}д {hours}ч)" if rem_imm < 86400 * 30 else ""
+            return False, f"🛡️ <b>СУДЕБНЫЙ ИММУНИТЕТ!</b>\nЭтот гражданин находится под защитой Арбитражного суда Волка (банкротство){dur_str}. Любые взыскания запрещены законом!"
 
         user_loans = self.get_user_loans(debtor_id)
         now = time.time()

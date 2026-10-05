@@ -825,6 +825,20 @@ async def collect_seize_command(message: Message):
         await send_error_message(message, "❌ Вы не можете выбивать долг из самого себя!")
         return
 
+    from utils.bankruptcy_manager import BankruptcyManager
+    has_imm, rem_imm = BankruptcyManager().has_immunity(debtor_id)
+    if has_imm:
+        days = int(rem_imm // 86400)
+        hours = int((rem_imm % 86400) // 3600)
+        dur = f" на {days}д {hours}ч" if rem_imm < 86400 * 30 else ""
+        await send_error_message(
+            message,
+            f"🛡️ <b>СУДЕБНЫЙ ИММУНИТЕТ!</b>\n\n"
+            f"Гражданин находится под защитой Арбитражного суда Волка (дело о банкротстве){dur}.\n"
+            f"Любые силовые рейды и изъятия средств строго запрещены законом!"
+        )
+        return
+
     if not loan_manager.has_overdue_loan(debtor_id):
         # Ложный наезд на невиновного!
         strikes, ban_time, sanction_desc = loan_manager.apply_sanction(
@@ -969,6 +983,20 @@ async def collect_fight_command(message: Message):
     debtor_id = _get_target_debtor(message, collector_id)
     if not debtor_id or debtor_id == collector_id:
         await send_error_message(message, "💡 Ответьте на сообщение должника командой <code>/наезд</code>")
+        return
+
+    from utils.bankruptcy_manager import BankruptcyManager
+    has_imm, rem_imm = BankruptcyManager().has_immunity(debtor_id)
+    if has_imm:
+        days = int(rem_imm // 86400)
+        hours = int((rem_imm % 86400) // 3600)
+        dur = f" на {days}д {hours}ч" if rem_imm < 86400 * 30 else ""
+        await send_error_message(
+            message,
+            f"🛡️ <b>СУДЕБНЫЙ ИММУНИТЕТ!</b>\n\n"
+            f"Гражданин находится под судебной защитой (дело о банкротстве){dur}.\n"
+            f"Силовые наезды строго запрещены законодательством стаи!"
+        )
         return
 
     if not loan_manager.has_overdue_loan(debtor_id):
@@ -1119,6 +1147,20 @@ async def collect_call_command(message: Message):
     debtor_id = _get_target_debtor(message, collector_id)
     if not debtor_id or debtor_id == collector_id:
         await send_error_message(message, "💡 Ответьте на сообщение должника командой <code>/звонок_должнику</code>")
+        return
+
+    from utils.bankruptcy_manager import BankruptcyManager
+    has_imm, rem_imm = BankruptcyManager().has_immunity(debtor_id)
+    if has_imm:
+        days = int(rem_imm // 86400)
+        hours = int((rem_imm % 86400) // 3600)
+        dur = f" на {days}д {hours}ч" if rem_imm < 86400 * 30 else ""
+        await send_error_message(
+            message,
+            f"🛡️ <b>СУДЕБНЫЙ ИММУНИТЕТ!</b>\n\n"
+            f"Гражданин находится под судебной защитой (дело о банкротстве){dur}.\n"
+            f"Телефонный прессинг и давление запрещены судом!"
+        )
         return
 
     if not loan_manager.has_overdue_loan(debtor_id):

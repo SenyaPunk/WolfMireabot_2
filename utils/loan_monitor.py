@@ -70,6 +70,11 @@ async def loan_monitor(bot: Bot):
 
                     # Начисление пени каждые 12 часов
                     elif status == "overdue":
+                        from utils.bankruptcy_manager import BankruptcyManager
+                        has_imm, _ = BankruptcyManager().has_immunity(user_id)
+                        if has_imm:
+                            continue
+
                         last_penalty = loan.get("last_penalty_at", due_at)
                         if now - last_penalty >= PENALTY_INTERVAL:
                             max_cap = round(principal * MAX_DEBT_MULTIPLIER, 2)

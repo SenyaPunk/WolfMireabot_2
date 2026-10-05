@@ -87,6 +87,24 @@ async def balance_command(message: Message):
         count_str = f" ({len(user_loans)} шт.)" if len(user_loans) > 1 else ""
         status_lines.append(f"💳 <b>Микрозаймы{count_str}:</b> {total_debt:.2f} монет ({tag})")
 
+    from utils.bankruptcy_manager import BankruptcyManager
+    bk_mgr = BankruptcyManager()
+    active_case = bk_mgr.get_case(target_user_id)
+    if active_case:
+        path_name = {
+            "awaiting_choice": "Выбор пути",
+            "service": f"Исправительные работы ({active_case['service_data']['shifts_done']}/{active_case['service_data']['shifts_needed']})",
+            "auction": f"Долговой аукцион (лот {active_case['auction_data']['buyout_price']:.0f}м)",
+            "duel": "Судебный поединок"
+        }.get(active_case.get("status"), "Арбитраж")
+        status_lines.append(f"⚖️ <b>Банкротство:</b> {path_name}")
+    else:
+        has_imm, rem_imm = bk_mgr.has_immunity(target_user_id)
+        if has_imm:
+            days = int(rem_imm // 86400)
+            hours = int((rem_imm % 86400) // 3600)
+            status_lines.append(f"🛡️ <b>Судебный иммунитет:</b> ещё {days}д {hours}ч")
+
     status_str = "\n".join(status_lines)
 
     await message.reply(
