@@ -218,6 +218,8 @@ async def main():
         BotCommand(command="loan", description="Оформить микрозайм"),
         BotCommand(command="repay", description="Погасить долг по займу"),
         BotCommand(command="my_loan", description="Информация о моем займе"),
+        BotCommand(command="bankrupt", description="Судебное банкротство и списание долгов"),
+        BotCommand(command="clean", description="Исправительные работы банкрота"),
         BotCommand(command="collector", description="Профиль и работа коллектора"),
         BotCommand(command="debtors", description="Биржа просроченных должников"),
         BotCommand(command="my_army", description="Моя армия и войска"),
