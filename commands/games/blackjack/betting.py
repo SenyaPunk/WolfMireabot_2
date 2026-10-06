@@ -97,28 +97,7 @@ def create_betting_keyboard(current_bet: int, balance: int, has_bet: bool = Fals
         row2.append(button)
     buttons.append(row2)
     
-    # 3-й ряд: кнопка All-in / Ва-банк
-    is_all_in = (current_bet == int_balance and int_balance > 0)
-    can_all_in = int_balance >= MIN_AUTO_BET and not is_all_in
-    
-    if is_all_in:
-        all_in_btn = InlineKeyboardButton(
-            text=f"🔥 Ва-банк выбран ({int_balance} 🪙)",
-            callback_data="bj_bet:disabled_allin"
-        )
-    elif can_all_in:
-        all_in_btn = InlineKeyboardButton(
-            text=f"🔥 Пойти ва-банк ({int_balance} 🪙)",
-            callback_data="bj_bet:all_in"
-        )
-    else:
-        all_in_btn = InlineKeyboardButton(
-            text=f"❌ Ва-банк ({int_balance} 🪙)",
-            callback_data="bj_bet:disabled"
-        )
-    buttons.append([all_in_btn])
-    
-    # 4-й ряд: кнопки управления при наличии ставки
+    # Кнопки управления при наличии ставки
     if has_bet:
         control_row = [
             InlineKeyboardButton(text="🔄 Сбросить", callback_data="bj_bet:reset"),
@@ -333,10 +312,7 @@ async def show_betting_message(bot: Bot, chat_id: int, game_key: str, game_state
             
             if str(pid) in bets:
                 bet_amount = bets[str(pid)]
-                p_balance = economy_manager.get_balance(pid)
-                is_p_all_in = (bet_amount >= int(p_balance) and bet_amount > 0)
-                badge = " 🔥 ALL-IN" if is_p_all_in else ""
-                bets_list.append(f"{idx}. {player_link} — <b>{bet_amount}</b> монет{badge} ✅")
+                bets_list.append(f"{idx}. {player_link} — <b>{bet_amount}</b> монет ✅")
             elif idx - 1 < current_index:
                 bets_list.append(f"{idx}. {player_link} — пропущен ⏭️")
             elif idx - 1 == current_index:
@@ -348,18 +324,13 @@ async def show_betting_message(bot: Bot, chat_id: int, game_key: str, game_state
         has_bet = current_bet > 0
         keyboard = create_betting_keyboard(current_bet, int_balance, has_bet)
         
-        is_all_in = (current_bet > 0 and current_bet >= int_balance)
-        bet_display = f"<b>{current_bet}</b> монет"
-        if is_all_in:
-            bet_display += " 🔥 <b>(ВА-БАНК!)</b>"
-        
         text = (
             f"💰 <b>БЛЕКДЖЕК — ПРИЕМ СТАВОК</b>\n\n"
             f"🎯 <b>Ход игрока:</b> {user_mention}\n"
             f"💵 <b>Баланс:</b> {int_balance} монет\n"
-            f"🎲 <b>Текущая ставка:</b> {bet_display}\n\n"
+            f"🎲 <b>Текущая ставка:</b> <b>{current_bet}</b> монет\n\n"
             f"📊 <b>Ставки игроков:</b>\n{bets_text}\n\n"
-            f"💡 <i>Выберите фишки или пойдите ва-банк, затем подтвердите ставку</i>"
+            f"💡 <i>Выберите сумму ставки и нажмите 'Поставить' для подтверждения</i>"
         )
         
         old_betting_message_id = game_data.get("betting_message_id")
@@ -507,37 +478,6 @@ async def betting_callback(callback: CallbackQuery, bot: Bot):
                 pass
             await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=False)
             
-        elif action == "all_in":
-            if int_balance < MIN_AUTO_BET:
-                try:
-                    await callback.answer(f"❌ Минимальная ставка — {MIN_AUTO_BET} монет", show_alert=True)
-                except Exception:
-                    pass
-                return
-            
-            if current_bet == int_balance:
-                try:
-                    await callback.answer("🔥 Ва-банк уже выбран!", show_alert=False)
-                except Exception:
-                    pass
-                return
-            
-            game_data["current_bet"] = int_balance
-            game_state_manager.update_game(game_key, game_data)
-            
-            try:
-                await callback.answer(f"🔥 Ва-банк: {int_balance} монет!")
-            except Exception:
-                pass
-            await show_betting_message(bot, chat_id, game_key, game_state_manager, is_new_player=False)
-            
-        elif action == "disabled_allin":
-            try:
-                await callback.answer("🔥 Ва-банк уже выбран! Нажмите кнопку подтверждения.", show_alert=False)
-            except Exception:
-                pass
-            return
-            
         elif action == "accept":
             if current_bet == 0:
                 try:
@@ -565,10 +505,7 @@ async def betting_callback(callback: CallbackQuery, bot: Bot):
             game_state_manager.update_game(game_key, game_data)
             
             try:
-                if current_bet >= int_balance:
-                    await callback.answer(f"🔥 ВА-БАНК! Ставка {current_bet} монет принята!")
-                else:
-                    await callback.answer(f"✅ Ставка {current_bet} монет принята!")
+                await callback.answer(f"✅ Ставка {current_bet} монет принята!")
             except Exception:
                 pass
             
