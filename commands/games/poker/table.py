@@ -41,8 +41,12 @@ WARNING_TIMEOUT = 35
 
 def cancel_poker_timer(game_key: str):
     if game_key in poker_turn_timers:
-        task = poker_turn_timers.pop(game_key)
-        if not task.done():
+        task = poker_turn_timers.pop(game_key, None)
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if task and task is not current_task and not task.done():
             task.cancel()
 
 

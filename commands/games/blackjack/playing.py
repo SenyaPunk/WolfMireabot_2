@@ -114,10 +114,13 @@ async def delete_messages_after_delay(bot: Bot, chat_id: int, message_ids: list,
 
 def cancel_player_timer(game_key: str):
     if game_key in player_timers:
-        timer_task = player_timers[game_key]
-        if not timer_task.done():
+        timer_task = player_timers.pop(game_key, None)
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if timer_task and timer_task is not current_task and not timer_task.done():
             timer_task.cancel()
-        del player_timers[game_key]
 
 
 async def delete_player_warning_messages(bot: Bot, chat_id: int, game_key: str, user_id: int, game_state_manager: GameStateManager):
@@ -227,9 +230,9 @@ async def player_action_timeout_handler(bot: Bot, chat_id: int, game_key: str, u
         if game_data["current_player_index"] >= len(players):
             logger.info("Last player auto-stand, starting dealer play")
             cancel_player_timer(game_key)
-            await dealer_play(bot, chat_id, game_key, game_state_manager)
+            asyncio.create_task(dealer_play(bot, chat_id, game_key, game_state_manager))
         else:
-            await show_player_action_menu(bot, chat_id, game_key, game_state_manager, is_new_player=True)
+            asyncio.create_task(show_player_action_menu(bot, chat_id, game_key, game_state_manager, is_new_player=True))
         
     except asyncio.CancelledError:
         logger.info(f"Timer cancelled for user {user_id} in game {game_key}")
