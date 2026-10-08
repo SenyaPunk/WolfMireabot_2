@@ -18,7 +18,7 @@ from utils.poker_evaluator import (
     SUIT_SYMBOLS
 )
 from utils.poker_table_renderer import render_poker_table_image
-from .table import get_poker_game_key, cancel_poker_timer, render_community_cards
+from .table import get_poker_game_key, cancel_poker_timer, render_community_cards, sync_poker_player_stacks
 from .helpers import safe_send_message, safe_delete_message, safe_edit_message_text, safe_edit_message_media
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ async def finish_hand_single_winner(bot: Bot, chat_id: int, winner_player: Dict[
     if not game_state:
         return
         
+    sync_poker_player_stacks(game_state)
     pot = game_state.get("pot", 0)
     blind = game_state.get("blind", 20)
     old_msg_id = game_state.get("message_id")
@@ -108,6 +109,7 @@ async def run_showdown(bot: Bot, chat_id: int):
     if not game_state:
         return
         
+    sync_poker_player_stacks(game_state)
     pot = game_state.get("pot", 0)
     blind = game_state.get("blind", 20)
     community = game_state.get("community_cards", [])

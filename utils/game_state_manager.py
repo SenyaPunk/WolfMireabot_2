@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +129,19 @@ class GameStateManager:
     
     def get_all_games(self) -> Dict[str, Any]:
         return self.games.copy()
+
+    def is_user_in_game(self, user_id: int) -> Tuple[bool, Optional[str]]:
+        """Проверяет, участвует ли пользователь в какой-либо активной игре прямо сейчас."""
+        for game_key, game_data in self.games.items():
+            if not isinstance(game_data, dict):
+                continue
+            players = game_data.get("players", [])
+            for p in players:
+                p_uid = p.get("user_id") if isinstance(p, dict) else p
+                if p_uid == user_id:
+                    if game_key.startswith("poker_game"):
+                        return True, "покер"
+                    elif game_key.startswith("blackjack_game"):
+                        return True, "блекджек"
+                    return True, "игра"
+        return False, None

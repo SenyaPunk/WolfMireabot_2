@@ -7,6 +7,7 @@ from aiogram.types import Message
 
 from utils.economy_manager import EconomyManager
 from utils.treasury_manager import TreasuryManager
+from utils.game_state_manager import GameStateManager
 from utils.user_storage import UserStorage
 from utils.user_link import get_user_link
 from utils.error_handler import send_error_message
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 economy_manager = EconomyManager()
 treasury_manager = TreasuryManager()
+game_state_manager = GameStateManager()
 user_storage = UserStorage()
 
 
@@ -93,6 +95,18 @@ async def transfer_command(message: Message):
 
     if target_user_id == sender_id:
         await send_error_message(message, "Вы не можете перевести деньги самому себе.")
+        return
+
+    # Проверка на участие отправителя в активных играх (покер, блекджек)
+    is_in_game, game_name = game_state_manager.is_user_in_game(sender_id)
+    if is_in_game:
+        sender_link = get_user_link(sender_id)
+        await send_error_message(
+            message,
+            f"🔒 <b>Перевод заблокирован!</b>\n\n"
+            f"{sender_link}, вы в данный момент участвуете в активной игре ({game_name}).\n"
+            f"Завершите партию перед тем, как переводить средства!"
+        )
         return
 
     sender_balance = economy_manager.get_balance(sender_id)

@@ -22,7 +22,8 @@ from .table import (
     get_table_keyboard,
     start_turn_timer,
     cancel_poker_timer,
-    update_table_view
+    update_table_view,
+    sync_poker_player_stacks
 )
 from .helpers import safe_edit_message_text, safe_send_message
 
@@ -46,6 +47,7 @@ async def cb_poker_show_cards(callback: CallbackQuery):
             return
             
         game_state = game_state_manager.get_game(game_key)
+        sync_poker_player_stacks(game_state)
         players = game_state.get("players", [])
         
         player = next((p for p in players if p["user_id"] == user_id), None)
@@ -129,6 +131,7 @@ async def process_player_turn(bot: Bot, chat_id: int, action: str, raise_amount:
     if not game_state:
         return
         
+    sync_poker_player_stacks(game_state)
     players = game_state["players"]
     actor_idx = game_state["current_actor_idx"]
     player = players[actor_idx]
@@ -151,12 +154,14 @@ async def process_player_turn(bot: Bot, chat_id: int, action: str, raise_amount:
         actual_call = min(to_call, player["stack"])
         if actual_call > 0:
             economy_manager.remove_money(uid, actual_call)
-            player["stack"] -= actual_call
             player["round_bet"] += actual_call
             player["total_bet"] += actual_call
             game_state["pot"] += actual_call
+            if "bets" not in game_state:
+                game_state["bets"] = {}
             game_state["bets"][str(uid)] = player["total_bet"]
             
+        player["stack"] = max(0, int(economy_manager.get_balance(uid)))
         if player["stack"] == 0:
             player["all_in"] = True
             action_text = f"🪙 {player['first_name']} уравнял ставку и пошел <b>ALL-IN</b> ({player['total_bet']})!"
@@ -168,13 +173,16 @@ async def process_player_turn(bot: Bot, chat_id: int, action: str, raise_amount:
         additional = target_round_bet - player["round_bet"]
         actual_add = min(additional, player["stack"])
         
-        economy_manager.remove_money(uid, actual_add)
-        player["stack"] -= actual_add
-        player["round_bet"] += actual_add
-        player["total_bet"] += actual_add
-        game_state["pot"] += actual_add
-        game_state["bets"][str(uid)] = player["total_bet"]
-        
+        if actual_add > 0:
+            economy_manager.remove_money(uid, actual_add)
+            player["round_bet"] += actual_add
+            player["total_bet"] += actual_add
+            game_state["pot"] += actual_add
+            if "bets" not in game_state:
+                game_state["bets"] = {}
+            game_state["bets"][str(uid)] = player["total_bet"]
+            
+        player["stack"] = max(0, int(economy_manager.get_balance(uid)))
         if player["round_bet"] > current_bet:
             game_state["current_bet"] = player["round_bet"]
             game_state["last_raiser_idx"] = actor_idx
@@ -268,6 +276,7 @@ async def advance_street(bot: Bot, chat_id: int):
     # Сбрасываем ставки раунда
     for p in players:
         p["round_bet"] = 0
+    sync_poker_player_stacks(game_state)
     game_state["current_bet"] = 0
     game_state["acted_this_round"] = []
     

@@ -67,7 +67,21 @@ def render_community_cards(community_cards: List[Dict[str, str]]) -> str:
     return "  ".join(cards_str)
 
 
+def sync_poker_player_stacks(game_state: Dict[str, Any]) -> None:
+    """Синхронизирует стеки игроков с их реальным текущим балансом в экономике."""
+    players = game_state.get("players", [])
+    for p in players:
+        uid = p.get("user_id")
+        if not uid:
+            continue
+        real_bal = max(0, int(economy_manager.get_balance(uid)))
+        p["stack"] = real_bal
+        if real_bal == 0 and not p.get("folded"):
+            p["all_in"] = True
+
+
 def format_table_text(game_state: Dict[str, Any]) -> str:
+    sync_poker_player_stacks(game_state)
     street_names = {
         "preflop": "Префлоп (Раздача карт)",
         "flop": "Флоп (Первые 3 карты)",
@@ -124,6 +138,7 @@ def format_table_text(game_state: Dict[str, Any]) -> str:
 
 
 def get_table_keyboard(game_state: Dict[str, Any]) -> InlineKeyboardMarkup:
+    sync_poker_player_stacks(game_state)
     chat_id = game_state["chat_id"]
     current_actor_idx = game_state.get("current_actor_idx", 0)
     players = game_state.get("players", [])
@@ -254,7 +269,7 @@ async def launch_poker_hand(
     sb_player = poker_players[0]
     sb_actual = min(sb_amount, sb_player["stack"])
     economy_manager.remove_money(sb_player["user_id"], sb_actual)
-    sb_player["stack"] -= sb_actual
+    sb_player["stack"] = max(0, int(economy_manager.get_balance(sb_player["user_id"])))
     sb_player["round_bet"] = sb_actual
     sb_player["total_bet"] = sb_actual
     bets_record[sb_player["user_id"]] = sb_actual
@@ -266,7 +281,7 @@ async def launch_poker_hand(
     bb_player = poker_players[1]
     bb_actual = min(bb_amount, bb_player["stack"])
     economy_manager.remove_money(bb_player["user_id"], bb_actual)
-    bb_player["stack"] -= bb_actual
+    bb_player["stack"] = max(0, int(economy_manager.get_balance(bb_player["user_id"])))
     bb_player["round_bet"] = bb_actual
     bb_player["total_bet"] = bb_actual
     bets_record[bb_player["user_id"]] = bb_actual
@@ -301,6 +316,8 @@ async def launch_poker_hand(
         "bets": bets_record
     }
     
+    sync_poker_player_stacks(game_state)
+    
     # Рендерим изображение стола
     buf = render_poker_table_image(game_state)
     text = format_table_text(game_state)
@@ -333,6 +350,7 @@ async def launch_poker_hand(
 
 async def update_table_view(bot: Bot, chat_id: int, game_state: Dict[str, Any], is_showdown: bool = False) -> bool:
     """Генерирует актуальную картинку стола и обновляет медиа в Telegram."""
+    sync_poker_player_stacks(game_state)
     message_id = game_state.get("message_id")
     if not message_id:
         return False

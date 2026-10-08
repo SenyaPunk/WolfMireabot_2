@@ -356,10 +356,34 @@ async def start_poker_table(bot: Bot, chat_id: int, message_id: int):
     players = data["players"]
     blind = data["blind"]
     
+    # Проверяем актуальный баланс игроков перед стартом
+    valid_players = []
+    min_required = blind * 2
+    for p in players:
+        bal = economy_manager.get_balance(p["user_id"])
+        if bal >= min_required:
+            valid_players.append(p)
+        else:
+            p_link = get_user_link(p["user_id"])
+            await safe_send_message(
+                bot, 
+                chat_id, 
+                f"⚠️ {p_link} исключен из-за стола: недостаточно монет для игры (нужно {min_required}, баланс {bal})."
+            )
+            
+    if len(valid_players) < MIN_PLAYERS:
+        await safe_delete_message(bot, chat_id, message_id)
+        await safe_send_message(
+            bot, 
+            chat_id, 
+            f"❌ <b>СТОЛ ДЛЯ ПОКЕРА ЗАКРЫТ</b>\n\nНедостаточно игроков с необходимым балансом (минимум {MIN_PLAYERS})."
+        )
+        return
+        
     # Отправляем сообщение о старте
     try:
         from .table import launch_poker_hand
-        await launch_poker_hand(bot, chat_id, message_id, players, blind)
+        await launch_poker_hand(bot, chat_id, message_id, valid_players, blind)
     except Exception as e:
         logger.error(f"Failed to launch poker hand: {e}", exc_info=True)
         await abort_poker_and_refund(bot, chat_id, game_key, game_state_manager, f"Ошибка запуска стола: {e}")
