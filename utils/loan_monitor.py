@@ -41,6 +41,21 @@ async def loan_monitor(bot: Bot):
                     debt = loan.get("debt", 0.0)
                     loan_id = loan.get("id", 1)
 
+                    # Если долг уже закрыт (<= 0.01), удаляем займ из активных
+                    if debt <= 0.01:
+                        if loan in user_loans:
+                            user_loans.remove(loan)
+                        if len(user_loans) == 0 and user_id in loan_manager.loans:
+                            del loan_manager.loans[user_id]
+                            from utils.slave_manager import SlaveManager
+                            SlaveManager().reset_price_penalty(user_id)
+                            for coll_data in loan_manager.collectors.values():
+                                act = coll_data.get("active_contract")
+                                if act and act.get("debtor_id") == user_id:
+                                    coll_data["active_contract"] = None
+                        loan_manager.save_data()
+                        continue
+
                     # Перевод в статус просрочки
                     if status == "active" and now > due_at:
                         loan["status"] = "overdue"

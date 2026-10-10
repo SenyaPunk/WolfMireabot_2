@@ -150,6 +150,81 @@ def test_collector_and_sanctions():
     print("--- Работа коллектора и санкции до 5 дней проверены успешно ---\n")
 
 
+def test_zero_debt_and_contract_safety():
+    print("--- 3. Тестирование защиты от фантомных долгов 0.00 и крашей NoneType ---")
+    em = EconomyManager("test_economy.json")
+    lm = LoanManager("test_loans.json")
+    lm.loans.clear()
+    lm.credit_history.clear()
+    lm.collectors.clear()
+
+    user_id = 999003
+    em.set_balance(user_id, 100.0)
+
+    # Симулируем займ с остатком 0.00 (как было у @kosterme)
+    lm.loans[user_id] = [{
+        "id": 1,
+        "tariff": "premium",
+        "tariff_name": "Премиум",
+        "principal": 2000.0,
+        "debt": 0.0,
+        "rate": 0.25,
+        "taken_at": time.time() - 3600,
+        "due_at": time.time() - 100,
+        "status": "overdue",
+        "repaid_amount": 2500.0,
+        "collector_contract": None
+    }]
+
+    # Добавляем коллектора с active_contract = None (чтобы проверить отсутствие NoneType краша)
+    lm.collectors[999004] = {
+        "status": "active",
+        "rank": "trainee",
+        "active_contract": None
+    }
+
+    # 1. get_user_loans должен отфильтровать займ с debt 0.0 и очистить запись
+    user_loans = lm.get_user_loans(user_id)
+    assert len(user_loans) == 0, "Займ с 0.00 долгом не должен возвращаться как активный"
+    assert user_id not in lm.loans, "Пользователь с 0.00 долгом должен быть удален из loans"
+    assert not lm.has_overdue_loan(user_id), "has_overdue_loan должен возвращать False при нулевом долге"
+    print("✅ Авто-очистка займа с 0.00 долгом: успешно")
+
+    # 2. Симулируем снова и проверяем, что get_user_loans мгновенно очищает его
+    lm.loans[user_id] = [{
+        "id": 1,
+        "tariff": "premium",
+        "tariff_name": "Премиум",
+        "principal": 2000.0,
+        "debt": 0.0,
+        "rate": 0.25,
+        "taken_at": time.time() - 3600,
+        "due_at": time.time() - 100,
+        "status": "overdue",
+        "repaid_amount": 2500.0,
+        "collector_contract": None
+    }]
+    # Вызов repay_loan обращается к get_user_loans, который очищает фантомный займ
+    ok, msg, paid = lm.repay_loan(user_id)
+    assert not ok and "нет активных займов" in msg
+    assert paid == 0.0
+    assert user_id not in lm.loans
+    print("✅ Вызов repay_loan при нулевом долге: очищен, нет активных долгов")
+
+    # 3. Биржа не должна отдавать нулевые долги
+    lm.loans[user_id] = [{
+        "id": 1,
+        "tariff": "premium",
+        "debt": 0.0,
+        "status": "overdue",
+        "due_at": time.time() - 100
+    }]
+    overdue = lm.get_all_overdue_loans()
+    assert len(overdue) == 0, "Нулевые долги не должны появляться на бирже коллекторов"
+    print("✅ Биржа коллекторов не выдает нулевые долги: успешно")
+    print("--- Защита от фантомных долгов 0.00 проверена успешно ---\n")
+
+
 def cleanup():
     data_dir = Path.cwd() / "data"
     for fname in ["test_economy.json", "test_economy.tmp", "test_loans.json", "test_loans.tmp"]:
@@ -165,6 +240,7 @@ if __name__ == "__main__":
     try:
         test_loan_lifecycle()
         test_collector_and_sanctions()
+        test_zero_debt_and_contract_safety()
         print("🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ БЕЗУПРЕЧНО!")
     finally:
         cleanup()

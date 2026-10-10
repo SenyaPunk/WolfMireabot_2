@@ -162,24 +162,30 @@ class LoanManager:
                     total_count = 0
                     for k, v in raw_loans.items():
                         uid = int(k)
-                        if isinstance(v, list):
-                            for idx, item in enumerate(v, 1):
-                                if "id" not in item:
-                                    item["id"] = idx
-                            self.loans[uid] = v
-                            total_count += len(v)
-                        elif isinstance(v, dict):
-                            # Обратная совместимость: если займ был сохранен как один dict
-                            if "id" not in v:
-                                v["id"] = 1
-                            self.loans[uid] = [v]
-                            total_count += 1
-                        else:
-                            self.loans[uid] = []
+                        raw_list = v if isinstance(v, list) else ([v] if isinstance(v, dict) else [])
+                        clean_list = []
+                        for idx, item in enumerate(raw_list, 1):
+                            if "id" not in item:
+                                item["id"] = idx
+                            # Учитываем только займы с реальным остатком долга
+                            if item.get("debt", 0.0) > 0.01:
+                                clean_list.append(item)
+                        if clean_list:
+                            self.loans[uid] = clean_list
+                            total_count += len(clean_list)
 
                     self.credit_history = {int(k): v for k, v in data.get("credit_history", {}).items()}
                     self.collectors = {int(k): v for k, v in data.get("collectors", {}).items()}
-                    logger.info(f"Загружено {total_count} займов и {len(self.collectors)} коллекторов")
+
+                    # Валидация контрактов коллекторов: сбрасываем контракт, если у должника нет долгов
+                    for coll_data in self.collectors.values():
+                        act = coll_data.get("active_contract")
+                        if act:
+                            debtor_id = act.get("debtor_id")
+                            if not debtor_id or debtor_id not in self.loans or not any(l.get("debt", 0.0) > 0.01 for l in self.loans[debtor_id]):
+                                coll_data["active_contract"] = None
+
+                    logger.info(f"Загружено {total_count} активных займов и {len(self.collectors)} коллекторов")
             else:
                 logger.info(f"Файл {self.loans_file} не найден, создаем пустой")
                 self.loans = {}
@@ -214,8 +220,22 @@ class LoanManager:
     # -------------------------------------------------------------
 
     def get_user_loans(self, user_id: int) -> List[Dict[str, Any]]:
-        """Возвращает список всех активных или просроченных займов пользователя."""
-        return self.loans.get(user_id, [])
+        """Возвращает список всех активных или просроченных займов пользователя с долгом > 0."""
+        user_loans = self.loans.get(user_id, [])
+        valid_loans = [l for l in user_loans if l.get("debt", 0.0) > 0.01]
+        if len(valid_loans) != len(user_loans):
+            if valid_loans:
+                self.loans[user_id] = valid_loans
+            else:
+                self.loans.pop(user_id, None)
+                from utils.slave_manager import SlaveManager
+                SlaveManager().reset_price_penalty(user_id)
+                for coll_data in self.collectors.values():
+                    act = coll_data.get("active_contract")
+                    if act and act.get("debtor_id") == user_id:
+                        coll_data["active_contract"] = None
+            self.save_data()
+        return valid_loans
 
     def get_user_loan(self, user_id: int, loan_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
@@ -409,7 +429,7 @@ class LoanManager:
 
         # Проверка на наличие просроченных займов: при просрочке новые займы не выдаются
         now = time.time()
-        overdue_loans = [l for l in user_loans if l.get("status") == "overdue" or l.get("due_at", 0) < now]
+        overdue_loans = [l for l in user_loans if l.get("debt", 0.0) > 0.01 and (l.get("status") == "overdue" or l.get("due_at", 0) < now)]
         if overdue_loans:
             overdue_debt = sum(l.get("debt", 0.0) for l in overdue_loans)
             return False, f"❌ У вас есть просроченный долг на сумму <b>{overdue_debt:.2f}</b> монет! Новые займы заблокированы до полного закрытия просрочки (/repay)."
@@ -512,6 +532,21 @@ class LoanManager:
 
         total_target_debt = sum(l.get("debt", 0.0) for l in targets)
 
+        if total_target_debt <= 0.01:
+            for l in targets:
+                if l in self.loans.get(user_id, []):
+                    self.loans[user_id].remove(l)
+            if user_id in self.loans and len(self.loans[user_id]) == 0:
+                del self.loans[user_id]
+                from utils.slave_manager import SlaveManager
+                SlaveManager().reset_price_penalty(user_id)
+                for coll_data in self.collectors.values():
+                    act = coll_data.get("active_contract")
+                    if act and act.get("debtor_id") == user_id:
+                        coll_data["active_contract"] = None
+            self.save_data()
+            return True, "🎉 Все ваши займы уже полностью закрыты!", 0.0
+
         if amount is None or amount <= 0 or amount > total_target_debt:
             available_payment = min(user_balance, total_target_debt)
         else:
@@ -555,12 +590,13 @@ class LoanManager:
             else:
                 partially_paid_info.append(f"• Займ #{lid} «{t_name}»: остаток {new_debt:.2f}м")
 
-        self.economy_manager.remove_money(user_id, actual_paid)
-        TreasuryManager().add_to_treasury(
-            actual_paid,
-            source="loans",
-            description=f"Погашение займа игроком {user_id} ({actual_paid:.2f}м)"
-        )
+        if actual_paid > 0:
+            self.economy_manager.remove_money(user_id, actual_paid)
+            TreasuryManager().add_to_treasury(
+                actual_paid,
+                source="loans",
+                description=f"Погашение займа игроком {user_id} ({actual_paid:.2f}м)"
+            )
 
         # Очищаем запись пользователя, если займов больше нет
         if user_id in self.loans and len(self.loans[user_id]) == 0:
@@ -570,13 +606,15 @@ class LoanManager:
             SlaveManager().reset_price_penalty(user_id)
             # Снимаем контракт коллектора, если был активен
             for coll_data in self.collectors.values():
-                if coll_data.get("active_contract", {}).get("debtor_id") == user_id:
+                act = coll_data.get("active_contract")
+                if act and act.get("debtor_id") == user_id:
                     coll_data["active_contract"] = None
         else:
             # Если не осталось просроченных займов, освобождаем коллектора
             if not self.has_overdue_loan(user_id):
                 for coll_data in self.collectors.values():
-                    if coll_data.get("active_contract", {}).get("debtor_id") == user_id:
+                    act = coll_data.get("active_contract")
+                    if act and act.get("debtor_id") == user_id:
                         coll_data["active_contract"] = None
 
         self.save_data()
@@ -620,10 +658,10 @@ class LoanManager:
         return round(total_cleared, 2)
 
     def has_overdue_loan(self, user_id: int) -> bool:
-        """Проверяет, есть ли у игрока хотя бы один просроченный долг."""
+        """Проверяет, есть ли у игрока хотя бы один просроченный долг с остатком debt > 0.01."""
         now = time.time()
         for loan in self.get_user_loans(user_id):
-            if loan.get("status") == "overdue" or loan.get("due_at", 0) < now:
+            if loan.get("debt", 0.0) > 0.01 and (loan.get("status") == "overdue" or loan.get("due_at", 0) < now):
                 return True
         return False
 
@@ -643,7 +681,8 @@ class LoanManager:
 
             user_overdue = [
                 l for l in user_loans
-                if (l.get("status") == "overdue" or l.get("due_at", 0) < now)
+                if l.get("debt", 0.0) > 0.01
+                and (l.get("status") == "overdue" or l.get("due_at", 0) < now)
                 and l.get("status") not in ("defaulted", "written_off")
             ]
             if user_overdue:
@@ -855,14 +894,16 @@ class LoanManager:
 
         user_loans = self.get_user_loans(debtor_id)
         now = time.time()
-        overdue_loans = [l for l in user_loans if l.get("status") == "overdue" or l.get("due_at", 0) < now]
+        overdue_loans = [l for l in user_loans if l.get("debt", 0.0) > 0.01 and (l.get("status") == "overdue" or l.get("due_at", 0) < now)]
+        if not overdue_loans:
+            return False, "❌ Этот заемщик не имеет просроченных задолженностей или уже закрыл долг!"
 
         # Проверяем, не ведет ли уже кто-то этот контракт
         for l in overdue_loans:
             current_contract_collector = l.get("collector_contract")
             if current_contract_collector and current_contract_collector != collector_id:
                 other_coll = self.get_collector(current_contract_collector)
-                if other_coll and other_coll.get("active_contract", {}).get("expires_at", 0) > now:
+                if other_coll and (other_coll.get("active_contract") or {}).get("expires_at", 0) > now:
                     return False, "🔒 Это дело уже передано в разработку другому коллектору! Подождите истечения срока его ордера."
 
         # Закрепляем контракт на всех просроченных займах должника
